@@ -1,5 +1,7 @@
 [![Build Status](https://travis-ci.org/fkanehiro/hrpsys-base.svg?branch=master)](https://travis-ci.org/fkanehiro/hrpsys-base)
 
+## knguyen's edit: shm から関節位置目標値を読む
+
 # Install
 
 For Install, See [INSTALL](https://raw.githubusercontent.com/fkanehiro/hrpsys-base/master/INSTALL)
