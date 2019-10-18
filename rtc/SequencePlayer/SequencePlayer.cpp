@@ -86,7 +86,7 @@ RTC::ReturnCode_t SequencePlayer::onInitialize()
     addInPort("basePosInit", m_basePosInitIn);
     addInPort("baseRpyInit", m_baseRpyInitIn);
     addInPort("zmpRefInit", m_zmpRefInitIn);
-  
+
     // Set OutPort buffer
     addOutPort("qRef", m_qRefOut);
     addOutPort("tqRef", m_tqRefOut);
@@ -95,19 +95,19 @@ RTC::ReturnCode_t SequencePlayer::onInitialize()
     addOutPort("basePos", m_basePosOut);
     addOutPort("baseRpy", m_baseRpyOut);
     addOutPort("optionalData", m_optionalDataOut);
-  
+
     // Set service provider to Ports
     m_SequencePlayerServicePort.registerProvider("service0", "SequencePlayerService", m_service0);
-  
+
     // Set service consumers to Ports
-  
+
     // Set CORBA Service Ports
     addPort(m_SequencePlayerServicePort);
-  
+
     // </rtc-template>
     // <rtc-template block="bind_config">
     // Bind variables and configuration variable
-  
+
     bindParameter("debugLevel", m_debugLevel, "0");
     bindParameter("fixedLink", m_fixedLink, "");
     // </rtc-template>
@@ -125,10 +125,10 @@ RTC::ReturnCode_t SequencePlayer::onInitialize()
     }
     nameServer = nameServer.substr(0, comPos);
     RTC::CorbaNaming naming(rtcManager.getORB(), nameServer.c_str());
-    if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(), 
+    if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(),
                                  CosNaming::NamingContext::_duplicate(naming.getRootContext())
                                  )){
-        std::cerr << "failed to load model[" << prop["model"] << "]" 
+        std::cerr << "failed to load model[" << prop["model"] << "]"
                   << std::endl;
     }
 
@@ -209,7 +209,7 @@ RTC::ReturnCode_t SequencePlayer::onFinalize()
 RTC::ReturnCode_t SequencePlayer::onActivated(RTC::UniqueId ec_id)
 {
     std::cout << "SequencePlayer::onActivated(" << ec_id << ")" << std::endl;
-    
+
     return RTC::RTC_OK;
 }
 
@@ -258,8 +258,8 @@ RTC::ReturnCode_t SequencePlayer::onExecute(RTC::UniqueId ec_id)
         m_zmpRef.data.x = zmp[0];
         m_zmpRef.data.y = zmp[1];
         m_zmpRef.data.z = zmp[2];
-        m_accRef.data.ax = acc[0]; 
-        m_accRef.data.ay = acc[1]; 
+        m_accRef.data.ax = acc[0];
+        m_accRef.data.ay = acc[1];
         m_accRef.data.az = acc[2];
 
         if (m_fixedLink != ""){
@@ -440,7 +440,7 @@ bool SequencePlayer::setJointAngles(const double *angles, double tm)
     return true;
 }
 
-bool SequencePlayer::setJointAngles(const double *angles, const bool *mask, 
+bool SequencePlayer::setJointAngles(const double *angles, const bool *mask,
                                     double tm)
 {
     if ( m_debugLevel > 0 ) {
@@ -717,7 +717,7 @@ void SequencePlayer::loadPattern(const char *basename, double tm)
             if (!l) {
                 std::cerr << __PRETTY_FUNCTION__ << "can't find a fixed link("
                           << m_fixedLink << ")" << std::endl;
-                m_fixedLink = ""; 
+                m_fixedLink = "";
                 return;
             }
             m_robot->calcForwardKinematics(); // this is not called by setinitialstate()
@@ -731,13 +731,13 @@ void SequencePlayer::loadPattern(const char *basename, double tm)
             if (!ifspos.is_open() || !ifswst.is_open()){
                 std::cerr << __PRETTY_FUNCTION__ << "can't open " << pos << " or "
                           << wst << ")" << std::endl;
-                m_fixedLink = ""; 
+                m_fixedLink = "";
                 return;
             }
             double time;
             ifspos >> time;
             for (int i=0; i<m_robot->numJoints(); i++){
-                ifspos >> m_robot->joint(i)->q; 
+                ifspos >> m_robot->joint(i)->q;
             }
             ifswst >> time;
             for (int i=0; i<3; i++) ifswst >> m_robot->rootLink()->p[i];
@@ -821,6 +821,10 @@ bool SequencePlayer::setInterpolationMode(OpenHRP::SequencePlayerService::interp
         new_mode = interpolator::LINEAR;
     }else if (i_mode_ == OpenHRP::SequencePlayerService::HOFFARBIB){
         new_mode = interpolator::HOFFARBIB;
+    }else if (i_mode_ == OpenHRP::SequencePlayerService::CUBICSPLINE){
+        new_mode = interpolator::CUBICSPLINE;
+    }else if (i_mode_ == OpenHRP::SequencePlayerService::QUINTICSPLINE){
+        new_mode = interpolator::QUINTICSPLINE;
     }else{
         return false;
     }
@@ -910,5 +914,3 @@ extern "C"
     }
 
 };
-
-
