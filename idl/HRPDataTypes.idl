@@ -62,6 +62,34 @@ module OpenHRP
     RTC::Velocity3D vel;
   };
 
+  struct LandingPosition
+  {
+    double x;
+    double y;
+    double z;
+    double nx;
+    double ny;
+    double nz;
+    long l_r;
+  };
+
+  struct SteppableRegion
+  {
+    sequence<sequence<double> > region;
+    long l_r;
+  };
+
+  struct CogState
+  {
+    double x;
+    double y;
+    double z;
+    double vx;
+    double vy;
+    double vz;
+    long l_r;
+  };
+
   //------------------------------------------------------------
   // Timed data types
   //------------------------------------------------------------
@@ -82,5 +110,23 @@ module OpenHRP
   {
     RTC::Time tm;
     SpatialVelocity data;
+  };
+
+  struct TimedLandingPosition
+  {
+    RTC::Time tm;
+    LandingPosition data;
+  };
+
+  struct TimedSteppableRegion
+  {
+    RTC::Time tm;
+    SteppableRegion data;
+  };
+
+  struct TimedCogState
+  {
+    RTC::Time tm;
+    CogState data;
   };
 };

@@ -267,6 +267,11 @@ class HrpsysConfigurator(object):
     octd = None
     octd_svc = None
     octd_version = None
+    
+    # WholeBodyMasterSLave
+    wbms = None
+    wbms_svc = None
+    wbms_version = None
 
     # rtm manager
     ms = None
@@ -378,15 +383,35 @@ class HrpsysConfigurator(object):
         for sen in self.getForceSensorNames():
             connectPorts(self.seq.port(sen + "Ref"),
                          self.sh.port(sen + "In"))
+        if self.es:
+            connectPorts(self.seq.port("qEmergency"), self.es.port("qEmergency"))
+
+        # connection for wbms
+        if self.wbms:
+            connectPorts(self.sh.port("qOut"), self.wbms.port("qRef"))
+            connectPorts(self.sh.port("zmpOut"), self.wbms.port("zmpIn"))
+            connectPorts(self.sh.port("basePosOut"), self.wbms.port("basePosIn"))
+            connectPorts(self.sh.port("baseRpyOut"), self.wbms.port("baseRpyIn"))
+            connectPorts(self.sh.port("optionalDataOut"), self.wbms.port("optionalData"))
 
         # connection for st
         if rtm.findPort(self.rh.ref, "lfsensor") and rtm.findPort(
                                      self.rh.ref, "rfsensor") and self.st:
             connectPorts(self.kf.port("rpy"), self.st.port("rpy"))
-            connectPorts(self.sh.port("zmpOut"), self.abc.port("zmpIn"))
-            connectPorts(self.sh.port("basePosOut"), self.abc.port("basePosIn"))
-            connectPorts(self.sh.port("baseRpyOut"), self.abc.port("baseRpyIn"))
-            connectPorts(self.sh.port("optionalDataOut"), self.abc.port("optionalData"))
+            connectPorts(self.kf.port("rpy"), self.abc.port("rpy"))
+            #### wbms
+            if self.wbms:
+                connectPorts(self.wbms.port("q"), self.ic.port("qRef"))
+                connectPorts(self.wbms.port("zmpOut"), self.abc.port("zmpIn"))
+                connectPorts(self.wbms.port("basePosOut"), self.abc.port("basePosIn"))
+                connectPorts(self.wbms.port("baseRpyOut"), self.abc.port("baseRpyIn"))
+                connectPorts(self.wbms.port("optionalDataOut"), self.abc.port("optionalData"))
+            #### normal
+            else:
+                connectPorts(self.sh.port("zmpOut"), self.abc.port("zmpIn"))
+                connectPorts(self.sh.port("basePosOut"), self.abc.port("basePosIn"))
+                connectPorts(self.sh.port("baseRpyOut"), self.abc.port("baseRpyIn"))
+                connectPorts(self.sh.port("optionalDataOut"), self.abc.port("optionalData"))
             connectPorts(self.abc.port("zmpOut"), self.st.port("zmpRef"))
             connectPorts(self.abc.port("baseRpyOut"), self.st.port("baseRpyIn"))
             connectPorts(self.abc.port("basePosOut"), self.st.port("basePosIn"))
@@ -394,12 +419,18 @@ class HrpsysConfigurator(object):
             connectPorts(self.abc.port("contactStates"), self.st.port("contactStates"))
             connectPorts(self.abc.port("controlSwingSupportTime"), self.st.port("controlSwingSupportTime"))
             connectPorts(self.rh.port("q"), self.st.port("qCurrent"))
+            connectPorts(self.rh.port("q"), self.abc.port("qCurrent"))
             connectPorts(self.seq.port("qRef"), self.st.port("qRefSeq"))
+            connectPorts(self.seq.port("qRef"), self.abc.port("qRefSeq"))
             connectPorts(self.abc.port("walkingStates"), self.st.port("walkingStates"))
             connectPorts(self.abc.port("sbpCogOffset"), self.st.port("sbpCogOffset"))
+
             connectPorts(self.abc.port("toeheelRatio"), self.st.port("toeheelRatio"))
             if self.es:
-                connectPorts(self.st.port("emergencySignal"), self.es.port("emergencySignal"))
+                connectPorts(self.abc.port("emergencySignal"), self.es.port("emergencySignal"))
+                connectPorts(self.abc.port("emergencyFallMotion"), self.es.port("emergencyFallMotion"))
+                connectPorts(self.es.port("touchWallMotionSolved"), self.abc.port("touchWallMotionSolved"))
+                connectPorts(self.es.port("qTouchWall"), self.abc.port("qTouchWall"))
             connectPorts(self.st.port("emergencySignal"), self.abc.port("emergencySignal"))
             connectPorts(self.st.port("diffCapturePoint"), self.abc.port("diffCapturePoint"))
             connectPorts(self.st.port("actContactStates"), self.abc.port("actContactStates"))
@@ -457,6 +488,9 @@ class HrpsysConfigurator(object):
                 if self.st:
                     connectPorts(self.rmfo.port("off_" + sen.name),
                                  self.st.port(sen.name))
+                if self.abc:
+                    connectPorts(self.rmfo.port("off_" + sen.name),
+                                 self.abc.port(sen.name))
         elif self.ic: # if the robot does not have rmfo and kf, but have ic
             for sen in filter(lambda x: x.type == "Force", self.sensors):
                 connectPorts(self.rh.port(sen.name),
@@ -502,7 +536,6 @@ class HrpsysConfigurator(object):
             if self.rmfo:
                 for sen in filter(lambda x: x.type == "Force", self.sensors):
                     connectPorts(self.rmfo.port("off_" + sen.name), self.octd.port(sen.name))
-
         # connection for gc
         if self.gc:
             connectPorts(self.rh.port("q"), self.gc.port("qCurrent"))  # other connections
@@ -749,6 +782,7 @@ class HrpsysConfigurator(object):
             ['octd', "ObjectContactTurnaroundDetector"],
             ['es', "EmergencyStopper"],
             ['rfu', "ReferenceForceUpdater"],
+            # ['wbms', "WholeBodyMasterSlave"],
             ['ic', "ImpedanceController"],
             ['abc', "AutoBalancer"],
             ['st', "Stabilizer"],
@@ -767,8 +801,8 @@ class HrpsysConfigurator(object):
         '''!@brief
         Get list of controller list that need to control joint angles
         '''
-        controller_list = [self.es, self.ic, self.gc, self.abc, self.st, self.co,
-                           self.tc, self.hes, self.el]
+#        controller_list = [self.es, self.ic, self.gc, self.abc, self.st, self.co, self.tc, self.hes, self.el]
+        controller_list = [self.es, self.wbms, self.ic, self.gc, self.abc, self.st, self.co, self.tc, self.hes, self.el]
         return filter(lambda c: c != None, controller_list)  # only return existing controllers
 
     def getRTCInstanceList(self, verbose=True):
@@ -882,6 +916,30 @@ class HrpsysConfigurator(object):
             self.connectLoggerPort(self.sh, 'zmpOut')
         if self.ic != None:
             self.connectLoggerPort(self.ic, 'q')
+        if self.wbms != None:
+            self.connectLoggerPort(self.wbms, 'q')
+            self.connectLoggerPort(self.wbms, 'basePosOut')
+            self.connectLoggerPort(self.wbms, 'baseRpyOut')
+            self.connectLoggerPort(self.wbms, 'zmpOut')
+            self.connectLoggerPort(self.wbms, 'baseTformOut')
+            self.connectLoggerPort(self.wbms, 'htcom_dbgOut')
+            self.connectLoggerPort(self.wbms, 'htrf_dbgOut')
+            self.connectLoggerPort(self.wbms, 'htlf_dbgOut')
+            self.connectLoggerPort(self.wbms, 'htrh_dbgOut')
+            self.connectLoggerPort(self.wbms, 'htlh_dbgOut')
+            self.connectLoggerPort(self.wbms, 'hthead_dbgOut')
+            self.connectLoggerPort(self.wbms, 'htzmp_dbgOut')
+            self.connectLoggerPort(self.wbms, 'htrfw_dbgOut')
+            self.connectLoggerPort(self.wbms, 'htlfw_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rpcom_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rprf_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rplf_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rprh_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rplh_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rphead_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rpzmp_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rpdcp_dbgOut')
+            self.connectLoggerPort(self.wbms, 'rpacp_dbgOut')
         if self.abc != None:
             self.connectLoggerPort(self.abc, 'zmpOut')
             self.connectLoggerPort(self.abc, 'baseTformOut')
@@ -889,6 +947,8 @@ class HrpsysConfigurator(object):
             self.connectLoggerPort(self.abc, 'contactStates')
             self.connectLoggerPort(self.abc, 'controlSwingSupportTime')
             self.connectLoggerPort(self.abc, 'cogOut')
+            self.connectLoggerPort(self.abc, 'tmp')
+            self.connectLoggerPort(self.abc, 'allEEComp')
         if self.st != None:
             self.connectLoggerPort(self.st, 'zmp')
             self.connectLoggerPort(self.st, 'originRefZmp')
@@ -907,6 +967,8 @@ class HrpsysConfigurator(object):
             self.connectLoggerPort(self.st, 'debugData')
         if self.el != None:
             self.connectLoggerPort(self.el, 'q')
+        if self.es != None:
+            self.connectLoggerPort(self.es, 'q')
         if self.rh != None:
             self.connectLoggerPort(self.rh, 'emergencySignal',
                                    'emergencySignal')

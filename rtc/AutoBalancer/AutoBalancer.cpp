@@ -55,20 +55,32 @@ AutoBalancer::AutoBalancer(RTC::Manager* manager)
     : RTC::DataFlowComponentBase(manager),
       // <rtc-template block="initializer">
       m_qRefIn("qRef", m_qRef),
+      m_qCurrentIn("qCurrent", m_qCurrent),
+      m_qTouchWallIn("qTouchWall", m_qTouchWall),
       m_basePosIn("basePosIn", m_basePos),
       m_baseRpyIn("baseRpyIn", m_baseRpy),
       m_zmpIn("zmpIn", m_zmp),
       m_optionalDataIn("optionalData", m_optionalData),
-      m_emergencySignalIn("emergencySignal", m_emergencySignal),
+      m_emergencySignalOut("emergencySignal", m_emergencySignal),
+      m_emergencyFallMotionOut("emergencyFallMotion", m_emergencyFallMotion),
+      m_isStuckOut("isStuck", m_isStuck),
+      m_useFlywheelOut("useFlywheel", m_useFlywheel),
+      m_estimatedFxyOut("estimatedFxy", m_estimatedFxy),
       m_diffCPIn("diffCapturePoint", m_diffCP),
       m_refFootOriginExtMomentIn("refFootOriginExtMoment", m_refFootOriginExtMoment),
       m_refFootOriginExtMomentIsHoldValueIn("refFootOriginExtMomentIsHoldValue", m_refFootOriginExtMomentIsHoldValue),
+      m_touchWallMotionSolvedIn("touchWallMotionSolved", m_touchWallMotionSolved),
       m_actContactStatesIn("actContactStates", m_actContactStates),
+      m_rpyIn("rpy", m_rpy),
+      m_qRefSeqIn("qRefSeq", m_qRefSeq),
+      m_landingHeightIn("landingHeight", m_landingHeight),
+      m_steppableRegionIn("steppableRegion", m_steppableRegion),
       m_qOut("q", m_qRef),
       m_zmpOut("zmpOut", m_zmp),
       m_basePosOut("basePosOut", m_basePos),
       m_baseRpyOut("baseRpyOut", m_baseRpy),
       m_baseTformOut("baseTformOut", m_baseTform),
+      m_tmpOut("tmp", m_tmp),
       m_basePoseOut("basePoseOut", m_basePose),
       m_accRefOut("accRef", m_accRef),
       m_contactStatesOut("contactStates", m_contactStates),
@@ -77,6 +89,9 @@ AutoBalancer::AutoBalancer(RTC::Manager* manager)
       m_walkingStatesOut("walkingStates", m_walkingStates),
       m_sbpCogOffsetOut("sbpCogOffset", m_sbpCogOffset),
       m_cogOut("cogOut", m_cog),
+      m_allEECompOut("allEEComp", m_allEEComp),
+      m_landingTargetOut("landingTarget", m_landingTarget),
+      m_endCogStateOut("endCogState", m_endCogState),
       m_AutoBalancerServicePort("AutoBalancerService"),
       // </rtc-template>
       gait_type(BIPED),
@@ -100,15 +115,21 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     // <rtc-template block="registration">
     // Set InPort buffers
     addInPort("qRef", m_qRefIn);
+    addInPort("qCurrent", m_qCurrentIn);
+    addInPort("qTouchWall", m_qTouchWallIn);
     addInPort("basePosIn", m_basePosIn);
     addInPort("baseRpyIn", m_baseRpyIn);
     addInPort("zmpIn", m_zmpIn);
     addInPort("optionalData", m_optionalDataIn);
-    addInPort("emergencySignal", m_emergencySignalIn);
     addInPort("diffCapturePoint", m_diffCPIn);
     addInPort("actContactStates", m_actContactStatesIn);
     addInPort("refFootOriginExtMoment", m_refFootOriginExtMomentIn);
     addInPort("refFootOriginExtMomentIsHoldValue", m_refFootOriginExtMomentIsHoldValueIn);
+    addInPort("touchWallMotionSolved", m_touchWallMotionSolvedIn);
+    addInPort("rpy", m_rpyIn);
+    addInPort("qRefSeq", m_qRefSeqIn);
+    addInPort("landingHeight", m_landingHeightIn);
+    addInPort("steppableRegion", m_steppableRegionIn);
 
     // Set OutPort buffer
     addOutPort("q", m_qOut);
@@ -116,6 +137,8 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     addOutPort("basePosOut", m_basePosOut);
     addOutPort("baseRpyOut", m_baseRpyOut);
     addOutPort("baseTformOut", m_baseTformOut);
+    addOutPort("tmpOut", m_tmpOut);
+    addOutPort("allEEComp", m_allEECompOut);
     addOutPort("basePoseOut", m_basePoseOut);
     addOutPort("accRef", m_accRefOut);
     addOutPort("contactStates", m_contactStatesOut);
@@ -124,19 +147,26 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     addOutPort("cogOut", m_cogOut);
     addOutPort("walkingStates", m_walkingStatesOut);
     addOutPort("sbpCogOffset", m_sbpCogOffsetOut);
-  
+    addOutPort("emergencySignal", m_emergencySignalOut);
+    addOutPort("emergencyFallMotion", m_emergencyFallMotionOut);
+    addOutPort("isStuck", m_isStuckOut);
+    addOutPort("useFlywheel", m_useFlywheelOut);
+    addOutPort("estimatedFxy", m_estimatedFxyOut);
+    addOutPort("landingTarget", m_landingTargetOut);
+    addOutPort("endCogState", m_endCogStateOut);
+
     // Set service provider to Ports
     m_AutoBalancerServicePort.registerProvider("service0", "AutoBalancerService", m_service0);
-  
+
     // Set service consumers to Ports
-  
+
     // Set CORBA Service Ports
     addPort(m_AutoBalancerServicePort);
-  
+
     // </rtc-template>
     // <rtc-template block="bind_config">
     // Bind variables and configuration variable
-  
+
     // </rtc-template>
 
     RTC::Properties& prop =  getProperties();
@@ -151,7 +181,7 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     }
     nameServer = nameServer.substr(0, comPos);
     RTC::CorbaNaming naming(rtcManager.getORB(), nameServer.c_str());
-    if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(), 
+    if (!loadBodyFromModelLoader(m_robot, prop["model"].c_str(),
                                  CosNaming::NamingContext::_duplicate(naming.getRootContext())
                                  )){
       std::cerr << "[" << m_profile.instance_name << "] failed to load model[" << prop["model"] << "]" << std::endl;
@@ -160,7 +190,12 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
 
     // allocate memory for outPorts
     m_qRef.data.length(m_robot->numJoints());
+    m_qCurrent.data.length(m_robot->numJoints());
+    m_qRefSeq.data.length(m_robot->numJoints());
+    m_qTouchWall.data.length(m_robot->numJoints());
     m_baseTform.data.length(12);
+    m_tmp.data.length(27);
+    diff_q.resize(m_robot->numJoints());
 
     control_mode = MODE_IDLE;
     loop = 0;
@@ -173,7 +208,11 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     leg_names.push_back("lleg");
 
     // Generate FIK
-    fik = fikPtr(new SimpleFullbodyInverseKinematicsSolver(m_robot, std::string(m_profile.instance_name), m_dt));
+
+    fik = fikPtr(new FullbodyInverseKinematicsSolver(m_robot, std::string(m_profile.instance_name), m_dt));
+    ik_mode = OpenHRP::AutoBalancerService::SIMPLE;
+    // Generate ST
+    st = stPtr(new Stabilizer(m_robot, std::string(m_profile.instance_name), m_dt));
 
     // setting from conf file
     // rleg,TARGET_LINK,BASE_LINK
@@ -197,7 +236,7 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
         }
         tp.localR = Eigen::AngleAxis<double>(tmpv[3], hrp::Vector3(tmpv[0], tmpv[1], tmpv[2])).toRotationMatrix(); // rotation in VRML is represented by axis + angle
         // FIK param
-        SimpleFullbodyInverseKinematicsSolver::IKparam tmp_fikp;
+        FullbodyInverseKinematicsSolver::IKparam tmp_fikp;
         tmp_fikp.manip = hrp::JointPathExPtr(new hrp::JointPathEx(m_robot, m_robot->link(ee_base), m_robot->link(ee_target), m_dt, false, std::string(m_profile.instance_name)));
         tmp_fikp.target_link = m_robot->link(ee_target);
         tmp_fikp.localPos = tp.localPos;
@@ -206,9 +245,59 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
         while (!root->isRoot()) {
           tmp_fikp.max_limb_length += root->b.norm();
           tmp_fikp.parent_name = root->name;
+          tmp_fikp.group_indices.push_back(root->jointId);
           root = root->parent;
         }
-        fik->ikp.insert(std::pair<std::string, SimpleFullbodyInverseKinematicsSolver::IKparam>(ee_name, tmp_fikp));
+        fik->ikp.insert(std::pair<std::string, FullbodyInverseKinematicsSolver::IKparam>(ee_name, tmp_fikp));
+        // ST param
+        Stabilizer::STIKParam stp;
+        for (size_t j = 0; j < 3; j++) {
+          stp.localp(j) = tp.localPos(j);
+        }
+        stp.localR = tp.localR;
+        stp.target_name = ee_target;
+        stp.ee_name = ee_name;
+        stp.avoid_gain = 0.001;
+        stp.reference_gain = 0.01;
+        stp.ik_loop_count = 3;
+        // For swing ee modification
+        stp.target_ee_diff_p = hrp::Vector3::Zero();
+        stp.target_ee_diff_r = hrp::Matrix33::Identity();
+        stp.d_rpy_swing = hrp::Vector3::Zero();
+        stp.d_pos_swing = hrp::Vector3::Zero();
+        stp.target_ee_diff_p_filter = boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> >(new FirstOrderLowPassFilter<hrp::Vector3>(50.0, m_dt, hrp::Vector3::Zero())); // [Hz]
+        stp.target_ee_diff_r_filter = boost::shared_ptr<FirstOrderLowPassFilter<hrp::Vector3> >(new FirstOrderLowPassFilter<hrp::Vector3>(50.0, m_dt, hrp::Vector3::Zero())); // [Hz]
+        stp.prev_d_pos_swing = hrp::Vector3::Zero();
+        stp.prev_d_rpy_swing = hrp::Vector3::Zero();
+        {
+          bool is_ee_exists = false;
+          for (size_t j = 0; j < m_robot->numSensors(hrp::Sensor::FORCE); j++) {
+            hrp::Sensor* sensor = m_robot->sensor(hrp::Sensor::FORCE, j);
+            hrp::Link* alink = m_robot->link(stp.target_name);
+            while (alink != NULL && alink->name != ee_base && !is_ee_exists) {
+              if ( alink->name == sensor->link->name ) {
+                is_ee_exists = true;
+                stp.sensor_name = sensor->name;
+              }
+              alink = alink->parent;
+            }
+          }
+        }
+        st->stikp.push_back(stp);
+        st->jpe_v.push_back(hrp::JointPathExPtr(new hrp::JointPathEx(m_robot, m_robot->link(ee_base), m_robot->link(ee_target), m_dt, false, std::string(m_profile.instance_name))));
+        // Fix for toe joint
+        if (ee_name.find("leg") != std::string::npos && st->jpe_v.back()->numJoints() == 7) { // leg and has 7dof joint (6dof leg +1dof toe)
+          std::vector<double> optw;
+          for (int j = 0; j < st->jpe_v.back()->numJoints(); j++ ) {
+            if ( j == st->jpe_v.back()->numJoints()-1 ) optw.push_back(0.0);
+            else optw.push_back(1.0);
+          }
+          st->jpe_v.back()->setOptionalWeightVector(optw);
+        }
+        st->contact_states_index_map.insert(std::pair<std::string, size_t>(ee_name, i));
+        st->is_ik_enable.push_back( (ee_name.find("leg") != std::string::npos ? true : false) ); // Hands ik => disabled, feet ik => enabled, by default
+        st->is_feedback_control_enable.push_back( (ee_name.find("leg") != std::string::npos ? true : false) ); // Hands feedback control => disabled, feet feedback control => enabled, by default
+        st->is_zmp_calc_enable.push_back( (ee_name.find("leg") != std::string::npos ? true : false) ); // To zmp calculation, hands are disabled and feet are enabled, by default
         // Fix for toe joint
         //   Toe joint is defined as end-link joint in the case that end-effector link != force-sensor link
         //   Without toe joints, "end-effector link == force-sensor link" is assumed.
@@ -229,6 +318,8 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
         std::cerr << "[" << m_profile.instance_name << "]   offset_pos = " << tp.localPos.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << "[m]" << std::endl;
         std::cerr << "[" << m_profile.instance_name << "]   has_toe_joint = " << (tp.has_toe_joint?"true":"false") << std::endl;
         contact_states_index_map.insert(std::pair<std::string, size_t>(ee_name, i));
+        if (( ee_name == "lleg" ) || ( ee_name == "rleg" )) touchdown_transition_interpolator.insert(std::pair<std::string, interpolator*>(ee_name, new interpolator(1, m_dt, interpolator::CUBICSPLINE)));
+        st->swing_modification_interpolator.insert(std::pair<std::string, interpolator*>(ee_name, new interpolator(1, m_dt, interpolator::CUBICSPLINE)));
       }
       m_contactStates.data.length(num);
       m_toeheelRatio.data.length(num);
@@ -243,6 +334,9 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
       m_controlSwingSupportTime.data.length(num);
       for (size_t i = 0; i < num; i++) m_controlSwingSupportTime.data[i] = 1.0;
       for (size_t i = 0; i < num; i++) m_toeheelRatio.data[i] = rats::no_using_toe_heel_ratio;
+
+      // ST param
+      st->initStabilizer(prop, num);
     }
     std::vector<hrp::Vector3> leg_pos;
     if (leg_offset_str.size() > 0) {
@@ -271,6 +365,10 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     transition_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB, 1);
     transition_interpolator->setName(std::string(m_profile.instance_name)+" transition_interpolator");
     transition_interpolator_ratio = 0.0;
+    emergency_transition_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB, 1);
+    emergency_transition_interpolator->setName(std::string(m_profile.instance_name)+" emergency_transition_interpolator");
+    touch_wall_transition_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB, 1);
+    touch_wall_transition_interpolator->setName(std::string(m_profile.instance_name)+" touch_wall_transition_interpolator");
     adjust_footstep_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB, 1);
     adjust_footstep_interpolator->setName(std::string(m_profile.instance_name)+" adjust_footstep_interpolator");
     transition_time = 2.0;
@@ -278,6 +376,18 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     leg_names_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB, 1);
     leg_names_interpolator->setName(std::string(m_profile.instance_name)+" leg_names_interpolator");
     leg_names_interpolator_ratio = 1.0;
+    angular_momentum_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB);
+    angular_momentum_interpolator->setName(std::string(m_profile.instance_name)+" angular_momentum_interpolator");
+    roll_weight_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB);
+    roll_weight_interpolator->setName(std::string(m_profile.instance_name)+" roll_weight_interpolator");
+    pitch_weight_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB);
+    pitch_weight_interpolator->setName(std::string(m_profile.instance_name)+" pitch_weight_interpolator");
+    go_vel_interpolator = new interpolator(3, m_dt, interpolator::HOFFARBIB);
+    go_vel_interpolator->setName(std::string(m_profile.instance_name)+" go_vel_interpolator");
+    cog_constraint_interpolator = new interpolator(1, m_dt, interpolator::HOFFARBIB);
+    cog_constraint_interpolator->setName(std::string(m_profile.instance_name)+" cog_constraint_interpolator");
+    limit_cog_interpolator = new interpolator(3, m_dt, interpolator::CUBICSPLINE);
+    limit_cog_interpolator->setName(std::string(m_profile.instance_name)+" limit_cog_interpolator");
 
     // setting stride limitations from conf file
     double stride_fwd_x_limit = 0.15;
@@ -317,6 +427,11 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     m_ref_forceOut.resize(nforce);
     m_limbCOPOffset.resize(nforce);
     m_limbCOPOffsetOut.resize(nforce);
+    m_wrenches.resize(nforce);
+    m_wrenchesIn.resize(nforce);
+    st->wrenches.resize(nforce);
+    st->ref_wrenches.resize(nforce);
+    st->limbCOPOffset.resize(nforce);
     for (unsigned int i=0; i<npforce; i++){
         sensor_names.push_back(m_robot->sensor(hrp::Sensor::FORCE, i)->name);
     }
@@ -334,6 +449,13 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
         std::cerr << "[" << m_profile.instance_name << "]   name = " << std::string("ref_"+sensor_names[i]) << std::endl;
         ref_forces.push_back(hrp::Vector3(0,0,0));
         ref_moments.push_back(hrp::Vector3(0,0,0));
+        // actual inport
+        m_wrenchesIn[i] = new InPort<TimedDoubleSeq>(sensor_names[i].c_str(), m_wrenches[i]);
+        m_wrenches[i].data.length(6);
+        m_allEEComp.data.length(st->stikp.size() * 6); // 6 is pos+rot dim
+        st->wrenches[i].resize(6);
+        st->ref_wrenches[i].resize(6);
+        registerInPort(sensor_names[i].c_str(), *m_wrenchesIn[i]);
     }
     // set force port
     for (unsigned int i=0; i<nforce; i++){
@@ -374,6 +496,21 @@ RTC::ReturnCode_t AutoBalancer::onInitialize()
     is_stop_mode = false;
     is_hand_fix_mode = false;
 
+    use_act_states = false;
+    gg->use_act_states = st->use_act_states = true;
+
+    is_after_walking = false;
+    prev_roll_state = prev_pitch_state = false;
+    prev_orig_cog = orig_cog = hrp::Vector3::Zero();
+
+    is_emergency_step_mode = false;
+    is_emergency_touch_wall_mode = false;
+    is_emergency_stopping = false;
+    is_touch_wall_motion_solved = false;
+    touch_wall_retrieve_time = 0.5;
+
+    cog_z_constraint = 1e-3;
+
     hrp::Sensor* sen = m_robot->sensor<hrp::RateGyroSensor>("gyrometer");
     if (sen == NULL) {
         std::cerr << "[" << m_profile.instance_name << "] WARNING! This robot model has no GyroSensor named 'gyrometer'! " << std::endl;
@@ -390,8 +527,27 @@ RTC::ReturnCode_t AutoBalancer::onFinalize()
 {
   delete zmp_offset_interpolator;
   delete transition_interpolator;
+  delete emergency_transition_interpolator;
+  delete touch_wall_transition_interpolator;
   delete adjust_footstep_interpolator;
   delete leg_names_interpolator;
+  delete angular_momentum_interpolator;
+  delete roll_weight_interpolator;
+  delete pitch_weight_interpolator;
+  delete st->transition_interpolator;
+  delete go_vel_interpolator;
+  delete cog_constraint_interpolator;
+  delete limit_cog_interpolator;
+  for ( std::map<std::string, interpolator*>::iterator it = touchdown_transition_interpolator.begin(); it != touchdown_transition_interpolator.end(); it++ ) {
+    delete it->second;
+  }
+  for ( std::map<std::string, interpolator*>::iterator it = st->swing_modification_interpolator.begin(); it != st->swing_modification_interpolator.end(); it++ ) {
+    delete it->second;
+  }
+  if (st->szd == NULL) {
+    delete st->szd;
+    st->szd = NULL;
+  }
   return RTC::RTC_OK;
 }
 
@@ -412,7 +568,7 @@ RTC::ReturnCode_t AutoBalancer::onFinalize()
 RTC::ReturnCode_t AutoBalancer::onActivated(RTC::UniqueId ec_id)
 {
     std::cerr << "[" << m_profile.instance_name<< "] onActivated(" << ec_id << ")" << std::endl;
-    
+
     return RTC::RTC_OK;
 }
 
@@ -425,6 +581,11 @@ RTC::ReturnCode_t AutoBalancer::onDeactivated(RTC::UniqueId ec_id)
     double tmp_ratio = 0.0;
     transition_interpolator->setGoal(&tmp_ratio, m_dt, true); // sync in one controller loop
   }
+  if ( (st->control_mode == Stabilizer::MODE_ST || st->control_mode == Stabilizer::MODE_AIR) ) {
+    st->sync_2_idle ();
+    st->control_mode = Stabilizer::MODE_IDLE;
+    st->transition_count = 1; // sync in one controller loop
+  }
   return RTC::RTC_OK;
 }
 
@@ -436,9 +597,23 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
   // std::cerr << "AutoBalancer::onExecute(" << ec_id << ")" << std::endl;
     loop ++;
 
+    if (is_emergency_step_mode && st->is_emergency_step && !gg_is_walking && !is_stop_mode) {
+      gg->set_is_emergency_step(true);
+      // if (fabs(st->act_cp(0)) > fabs(st->act_cp(1))) {
+        if (st->act_cp(0) > 0) goVelocity(0,(st->ref_foot_origin_rot*ikp["lleg"].target_p0)(0) > (st->ref_foot_origin_rot*ikp["rleg"].target_p0)(0) ? -1e-6:1e-6,0);
+        else goVelocity(0,(st->ref_foot_origin_rot*ikp["lleg"].target_p0)(0) > (st->ref_foot_origin_rot*ikp["rleg"].target_p0)(0) ? 1e-6:-1e-6,0);
+      // } else goVelocity(0,st->act_cp(1)>0?-1e-6:1e-6,0);
+    }
+
     // Read Inport
     if (m_qRefIn.isNew()) {
         m_qRefIn.read();
+    }
+    if (m_qCurrentIn.isNew()) {
+      m_qCurrentIn.read();
+    }
+    if (m_qTouchWallIn.isNew()) {
+        m_qTouchWallIn.read();
     }
     if (m_basePosIn.isNew()) {
       m_basePosIn.read();
@@ -464,13 +639,39 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
     if (m_optionalDataIn.isNew()) {
         m_optionalDataIn.read();
     }
-    if (m_emergencySignalIn.isNew()){
-        m_emergencySignalIn.read();
-        // if (!is_stop_mode) {
-        //     std::cerr << "[" << m_profile.instance_name << "] emergencySignal is set!" << std::endl;
-        //     is_stop_mode = true;
-        //     gg->emergency_stop();
-        // }
+    if (st->reset_emergency_flag) {
+      m_emergencySignal.data = 0;
+      m_emergencySignalOut.write();
+      m_emergencyFallMotion.data = false;
+      m_emergencyFallMotionOut.write();
+      st->reset_emergency_flag = false;
+    } else {
+      if (st->is_emergency_motion && !is_stop_mode) {
+        std::cerr << "[" << m_profile.instance_name << "] emergencyFallMotion is set!" << std::endl;
+        is_stop_mode = true;
+        m_emergencyFallMotion.data = true;
+        m_emergencyFallMotionOut.write();
+        gg->finalize_velocity_mode2();
+        stopABCparamEmergency();
+        st->stopSTEmergency();
+      }
+      if (gg_is_walking && !is_stop_mode && gg->is_emergency_touch_wall && is_emergency_touch_wall_mode) {
+        std::cerr << "[" << m_profile.instance_name << "] emergencyTouchWall is set!" << std::endl;
+        m_emergencySignal.data = 2;
+        is_stop_mode = true;
+        m_emergencySignalOut.write();
+        double tmp_ratio = 1.0;
+        touch_wall_transition_interpolator->set(&tmp_ratio);
+        tmp_ratio = 0.0;
+        touch_wall_transition_interpolator->setGoal(&tmp_ratio, touch_wall_retrieve_time, true);
+        gg->emergency_stop();
+        is_emergency_stopping = true;
+      } else if (is_stop_mode && !gg_is_walking && is_emergency_stopping) {
+        stopABCparamEmergency();
+        st->stopSTEmergency();
+        is_emergency_stopping = false;
+        touch_wall_transition_interpolator->clear();
+      }
     }
     if (m_diffCPIn.isNew()) {
       m_diffCPIn.read();
@@ -482,6 +683,10 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
     if (m_refFootOriginExtMomentIsHoldValueIn.isNew()) {
       m_refFootOriginExtMomentIsHoldValueIn.read();
     }
+    if (m_touchWallMotionSolvedIn.isNew()) {
+      m_touchWallMotionSolvedIn.read();
+      is_touch_wall_motion_solved = m_touchWallMotionSolved.data;
+    }
     if (m_actContactStatesIn.isNew()) {
       m_actContactStatesIn.read();
       std::vector<bool> tmp_contacts(m_actContactStates.data.length());
@@ -490,15 +695,47 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
       }
       gg->set_act_contact_states(tmp_contacts);
     }
+    if (m_rpyIn.isNew()) {
+      m_rpyIn.read();
+    }
+    for (size_t i = 0; i < m_wrenchesIn.size(); ++i) {
+      if ( m_wrenchesIn[i]->isNew() ) {
+        m_wrenchesIn[i]->read();
+      }
+    }
+    gg->set_is_vision_updated(false);
+    if (m_landingHeightIn.isNew()) {
+      m_landingHeightIn.read();
+      if ((gg->get_support_leg_names().front() == "rleg" && m_landingHeight.data.l_r == 0) ||
+          (gg->get_support_leg_names().front() == "lleg" && m_landingHeight.data.l_r == 1))
+        {
+          gg->set_is_vision_updated(true);
+          hrp::Vector3 pos(hrp::Vector3(m_landingHeight.data.x, m_landingHeight.data.y, m_landingHeight.data.z));
+          hrp::Vector3 normal(hrp::Vector3(m_landingHeight.data.nx, m_landingHeight.data.ny, m_landingHeight.data.nz));
+          gg->set_rel_landing_height(pos);
+          gg->set_rel_landing_normal(normal);
+        }
+    }
+    if (m_steppableRegionIn.isNew()) {
+      m_steppableRegionIn.read();
+      if ((gg->get_support_leg_names().front() == "rleg" && m_steppableRegion.data.l_r == 0) ||
+          (gg->get_support_leg_names().front() == "lleg" && m_steppableRegion.data.l_r == 1))
+        {
+          gg->set_steppable_region(m_steppableRegion);
+        }
+    }
 
     // Calculation
     Guard guard(m_mutex);
-    hrp::Vector3 ref_basePos;
-    hrp::Matrix33 ref_baseRot;
-    hrp::Vector3 rel_ref_zmp; // ref zmp in base frame
     if ( is_legged_robot ) {
       // For parameters
-      fik->storeCurrentParameters();
+      setActData2ST();
+      st->getActualParameters();
+      // if (!go_vel_interpolator->isEmpty()) {
+      //   std::vector<double> tmp_v(3);
+      //   go_vel_interpolator->get(tmp_v.data(), true);
+      //   gg->set_velocity_param(tmp_v[0], tmp_v[1], tmp_v[2]);
+      // }
       getTargetParameters();
       // Get transition ratio
       bool is_transition_interpolator_empty = transition_interpolator->isEmpty();
@@ -508,7 +745,16 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
         transition_interpolator_ratio = (control_mode == MODE_IDLE) ? 0.0 : 1.0;
       }
       if (control_mode != MODE_IDLE ) {
-        solveFullbodyIK();
+          switch(ik_mode){
+              case OpenHRP::AutoBalancerService::SIMPLE:
+                  solveSimpleFullbodyIK();
+                  break;
+              case OpenHRP::AutoBalancerService::FULLBODY:
+                  solveFullbodyIK();
+                  break;
+              default:
+                  break;
+          }
 //        /////// Inverse Dynamics /////////
 //        if(!idsb.is_initialized){
 //          idsb.setInitState(m_robot, m_dt);
@@ -526,9 +772,30 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
 //        updateInvDynStateBuffer(idsb);
 
         rel_ref_zmp = m_robot->rootLink()->R.transpose() * (ref_zmp - m_robot->rootLink()->p);
+        fik->storeCurrentParameters();
+
+        if (is_touch_wall_motion_solved) {
+          double tmp_ratio = 1.0;
+          if (!touch_wall_transition_interpolator->isEmpty()) {
+            touch_wall_transition_interpolator->get(&tmp_ratio, true);
+          } else if (is_emergency_stopping) {
+            tmp_ratio = 0.0;
+          }
+          for ( int i = 0; i < m_robot->numJoints(); i++ ) {
+            m_robot->joint(i)->q = (1-tmp_ratio) * m_qTouchWall.data[i] + tmp_ratio * m_robot->joint(i)->q;
+          }
+        }
       } else {
+        if (!emergency_transition_interpolator->isEmpty()) {
+          double tmp_ratio;
+          emergency_transition_interpolator->get(&tmp_ratio, true);
+          for ( int i = 0; i < m_robot->numJoints(); i++ ){
+            m_robot->joint(i)->q = m_qRef.data[i] + tmp_ratio * diff_q[i];
+          }
+        }
         rel_ref_zmp = input_zmp;
         fik->d_root_height = 0.0;
+        fik->storeCurrentParameters();
       }
       // Transition
       if (!is_transition_interpolator_empty) {
@@ -563,17 +830,20 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
                   << "] Finished cleanup" << std::endl;
         control_mode = MODE_IDLE;
       }
+      m_robot->calcForwardKinematics();
+      hrp::Vector3 tmp_ref_cog(m_robot->calcCM());
+      ref_cog(2) = tmp_ref_cog(2);
     }
 
     // Write Outport
-    if ( m_qRef.data.length() != 0 ) { // initialized
-      if (is_legged_robot) {
-        for ( unsigned int i = 0; i < m_robot->numJoints(); i++ ){
-          m_qRef.data[i] = m_robot->joint(i)->q;
-        }
-      }
-      m_qOut.write();
-    }
+    // if ( m_qRef.data.length() != 0 ) { // initialized
+    //   if (is_legged_robot) {
+    //     for ( unsigned int i = 0; i < m_robot->numJoints(); i++ ){
+    //       m_qRef.data[i] = m_robot->joint(i)->q;
+    //     }
+    //   }
+    //   m_qOut.write();
+    // }
     if (is_legged_robot) {
       // basePos
       m_basePos.data.x = ref_basePos(0);
@@ -581,7 +851,7 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
       m_basePos.data.z = ref_basePos(2);
       m_basePos.tm = m_qRef.tm;
       // baseRpy
-      hrp::Vector3 baseRpy = hrp::rpyFromRot(ref_baseRot);
+      baseRpy = hrp::rpyFromRot(ref_baseRot);
       m_baseRpy.data.r = baseRpy(0);
       m_baseRpy.data.p = baseRpy(1);
       m_baseRpy.data.y = baseRpy(2);
@@ -616,6 +886,17 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
       m_sbpCogOffset.data.y = sbp_cog_offset(1);
       m_sbpCogOffset.data.z = sbp_cog_offset(2);
       m_sbpCogOffset.tm = m_qRef.tm;
+      // is stuck
+      m_isStuck.data = gg->is_stuck;
+      m_isStuck.tm = m_qRef.tm;
+      // use flywheel
+      m_useFlywheel.data = gg->get_use_roll_flywheel() || gg->get_use_pitch_flywheel();
+      m_useFlywheel.tm = m_qRef.tm;
+      // estimated Fxy
+      m_estimatedFxy.data.x = gg->fxy(0);
+      m_estimatedFxy.data.y = gg->fxy(1);
+      m_estimatedFxy.data.z = gg->fxy(2);
+      m_estimatedFxy.tm = m_qRef.tm;
       // write
       m_basePosOut.write();
       m_baseRpyOut.write();
@@ -624,6 +905,33 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
       m_zmpOut.write();
       m_cogOut.write();
       m_sbpCogOffsetOut.write();
+      m_isStuckOut.write();
+      m_useFlywheelOut.write();
+      m_estimatedFxyOut.write();
+      for (size_t i = 0; i < 21; i++) {
+        m_tmp.data[i] = gg->get_tmp(i);
+      }
+      m_tmp.data[19] = ref_cog(0) - m_tmp.data[19];
+      m_tmp.data[20] = ref_cog(1) - m_tmp.data[20];
+      hrp::Vector3 tmp_zmp = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_zmp;
+      m_tmp.data[21] = tmp_zmp(0);
+      m_tmp.data[22] = tmp_zmp(1);
+      // tmp_zmp = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cmp;
+      // m_tmp.data[23] = tmp_zmp(0); // cmp
+      // m_tmp.data[24] = tmp_zmp(1); // cmp
+      tmp_zmp = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cmp;
+      m_tmp.data[23] = gg->get_tmp(21);
+      m_tmp.data[24] = gg->get_tmp(22);
+      m_tmp.tm = m_qRef.tm;
+      m_tmpOut.write();
+      for (size_t i = 0; i < st->stikp.size(); i++) {
+        for (size_t j = 0; j < 3; j++) {
+          m_allEEComp.data[6*i+j] = st->stikp[i].d_pos_swing(j);
+          m_allEEComp.data[6*i+j+3] = st->stikp[i].d_rpy_swing(j);
+        }
+      }
+      m_allEEComp.tm = m_qRef.tm;
+      m_allEECompOut.write();
 
       // reference acceleration
       hrp::Sensor* sen = m_robot->sensor<hrp::RateGyroSensor>("gyrometer");
@@ -660,7 +968,89 @@ RTC::ReturnCode_t AutoBalancer::onExecute(RTC::UniqueId ec_id)
       }
     }
 
+    if (gg_is_walking) {
+      hrp::Vector3 off = hrp::Vector3(0.0, 0.0, 0.0);
+      hrp::Vector3 pos, vel;
+      int l_r; // rleg: 0, lleg: 1
+      gg->get_rel_landing_pos(pos, l_r);
+      m_landingTarget.data.x = pos(0) + off(0);
+      m_landingTarget.data.y = pos(1) + off(1);
+      m_landingTarget.data.z = pos(2) + off(2);
+      m_landingTarget.data.l_r = l_r;
+      m_landingTargetOut.write();
+      gg->get_end_cog_state(pos, vel, l_r);
+      m_endCogState.data.x = pos(0);
+      m_endCogState.data.y = pos(1);
+      m_endCogState.data.z = pos(2);
+      m_endCogState.data.vx = vel(0);
+      m_endCogState.data.vy = vel(1);
+      m_endCogState.data.vz = vel(2);
+      m_endCogState.data.l_r = l_r;
+      m_endCogStateOut.write();
+    }
+
+    setABCData2ST();
+    st->execStabilizer();
+
+    if (!st->reset_emergency_flag && st->is_emergency) {
+      m_emergencySignal.data = 1;
+      m_emergencySignalOut.write();
+    }
+
+    if ( m_qRef.data.length() != 0 ) { // initialized
+      if (is_legged_robot) {
+        for ( unsigned int i = 0; i < m_robot->numJoints(); i++ ){
+          m_qRef.data[i] = m_robot->joint(i)->q;
+        }
+      }
+      m_qOut.write();
+    }
     return RTC::RTC_OK;
+}
+
+void AutoBalancer::setActData2ST()
+{
+  for ( int i = 0; i < m_robot->numJoints(); i++ ) {
+    st->qCurrent[i] =  m_qCurrent.data[i];
+  }
+  for (size_t j = 0; j < st->wrenches.size(); j++) {
+    for (size_t i = 0; i < 6; i++) {
+      st->wrenches[j][i] = m_wrenches[j].data[i];
+    }
+  }
+  st->rpy(0) = m_rpy.data.r;
+  st->rpy(1) = m_rpy.data.p;
+  st->rpy(2) = m_rpy.data.y;
+}
+
+void AutoBalancer::setABCData2ST()
+{
+  for ( int i = 0; i < m_robot->numJoints(); i++ ) {
+    st->qRef[i] =  m_robot->joint(i)->q;
+    st->qRefSeq[i] =  m_qRefSeq.data[i];
+  }
+  for (size_t i; i < m_contactStates.data.length(); i++) {
+    st->ref_contact_states[i] = m_contactStates.data[i];
+    st->toeheel_ratio[i] = m_toeheelRatio.data[i];
+    st->controlSwingSupportTime[i] = m_controlSwingSupportTime.data[i];
+  }
+  for (size_t j = 0; j < st->wrenches.size(); j++) {
+    for (size_t i = 0; i < 6; i++) {
+      st->ref_wrenches[j][i] = m_ref_force[j].data[i];
+    }
+  }
+  for (size_t i = 0; i < st->limbCOPOffset.size(); i++) {
+    st->limbCOPOffset[i](0) = m_limbCOPOffset[i].data.x;
+    st->limbCOPOffset[i](1) = m_limbCOPOffset[i].data.y;
+    st->limbCOPOffset[i](2) = m_limbCOPOffset[i].data.z;
+    st->stikp[i].localCOPPos = st->stikp[i].localp + st->stikp[i].localR * hrp::Vector3(st->limbCOPOffset[i](0), 0, st->limbCOPOffset[i](2));
+  }
+  st->zmpRef = rel_ref_zmp;
+  st->basePos = ref_basePos;
+  st->baseRpy = baseRpy;
+  st->is_walking = gg_is_walking;
+  st->is_single_walking = gg_is_walking && gg->get_is_single_walking();
+  st->sbp_cog_offset = sbp_cog_offset;
 }
 
 void AutoBalancer::getTargetParameters()
@@ -675,13 +1065,32 @@ void AutoBalancer::getTargetParameters()
   m_robot->rootLink()->R = input_baseRot;
   m_robot->calcForwardKinematics();
   gg->proc_zmp_weight_map_interpolation();
+  gg->set_total_mass(m_robot->totalMass());
   if (control_mode != MODE_IDLE) {
     interpolateLegNamesAndZMPOffsets();
     // Calculate tmp_fix_coords and something
     coordinates tmp_fix_coords;
+    // calc convex_hull // assume 2 legs
+    {
+      std::vector<bool> tmp_contact_states(2);
+      std::vector<hrp::Vector3> tmp_ee_pos(2);
+      std::vector <hrp::Matrix33> tmp_ee_rot(2);
+      for (size_t i = 0; i < 2; i++) {
+        ABCIKparam& tmpikp = ikp[leg_names[i]];
+        tmp_ee_pos[i] = tmpikp.target_p0;
+        tmp_ee_rot[i] = tmpikp.target_r0;
+        tmp_contact_states[i] = (gg->is_inverse_double_phase ? true : m_contactStates.data[i]);
+      }
+      gg->get_vertices(support_polygon_vertices);
+      gg->calc_convex_hull(support_polygon_vertices, tmp_contact_states, tmp_ee_pos, tmp_ee_rot);
+    }
     if ( gg_is_walking ) {
       gg->set_default_zmp_offsets(default_zmp_offsets);
-      gg_solved = gg->proc_one_tick();
+      hrp::Vector3 act_cog = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cog;
+      hrp::Vector3 act_cogvel = st->ref_foot_origin_rot * st->act_cogvel;
+      hrp::Vector3 act_cmp = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cmp;
+      gg_solved = gg->proc_one_tick(act_cog, act_cogvel, act_cmp);
+      st->falling_direction = gg->get_falling_direction();
       gg->get_swing_support_mid_coords(tmp_fix_coords);
     } else {
       tmp_fix_coords = fix_leg_coords;
@@ -727,10 +1136,13 @@ void AutoBalancer::getTargetParameters()
     hrp::Vector3 tmp_ref_cog(m_robot->calcCM());
     hrp::Vector3 tmp_foot_mid_pos = calcFootMidPosUsingZMPWeightMap ();
     if (gg_is_walking) {
+      prev_orig_cog = orig_cog;
       ref_cog = gg->get_cog();
+      orig_cog = ref_cog;
     } else {
       ref_cog = tmp_foot_mid_pos;
     }
+    limit_cog(ref_cog);
     ref_cog(2) = tmp_ref_cog(2);
     if (gg_is_walking) {
       ref_zmp = gg->get_refzmp();
@@ -755,6 +1167,7 @@ void AutoBalancer::getTargetParameters()
               m_force[i].data[j] = m_ref_force[i].data[j];
           }
       }
+      is_after_walking = false;
   }
   // Just for stop walking
   if (gg_is_walking && !gg_solved) stopWalking ();
@@ -924,7 +1337,7 @@ void AutoBalancer::updateTargetCoordsForHandFixMode (coordinates& tmp_fix_coords
     // Move hand for hand fix mode
     //   If arms' ABCIKparam.is_active is true, move hands according to cog velocity.
     //   If is_hand_fix_mode is false, no hand fix mode and move hands according to cog velocity.
-    //   If is_hand_fix_mode is true, hand fix mode and do not move hands in Y axis in tmp_fix_coords.rot.    
+    //   If is_hand_fix_mode is true, hand fix mode and do not move hands in Y axis in tmp_fix_coords.rot.
     if (gg_is_walking) {
         // hand control while walking = solve hand ik with is_hand_fix_mode and solve hand ik without is_hand_fix_mode
         bool is_hand_control_while_walking = false;
@@ -952,6 +1365,13 @@ void AutoBalancer::updateTargetCoordsForHandFixMode (coordinates& tmp_fix_coords
                 }
             }
         }
+    } else if (!limit_cog_interpolator->isEmpty()) {
+      for ( std::map<std::string, ABCIKparam>::iterator it = ikp.begin(); it != ikp.end(); it++ ) {
+        if ( it->second.is_active && std::find(leg_names.begin(), leg_names.end(), it->first) == leg_names.end()
+             && it->first.find("arm") != std::string::npos ) {
+          it->second.target_p0 = it->second.target_p0 - limited_dif_cog;
+        }
+      }
     }
 };
 
@@ -1075,12 +1495,232 @@ void AutoBalancer::fixLegToCoords2 (coordinates& tmp_fix_coords)
     fixLegToCoords(tmp_fix_coords.pos, tmp_fix_coords.rot);
 }
 
+void AutoBalancer::stopFootForEarlyTouchDown ()
+{
+  double remain_time = 0.0;
+  bool is_last_double = (gg->get_footstep_index() == gg->get_step_num() - 1);
+  for (size_t i = 0; i < 2; i++) {
+    if (gg_is_walking) {
+      remain_time = gg->get_remain_count() * m_dt + (m_contactStates.data[i == 0 ? 1 : 0] &&
+                                                     ((gg->is_before_step_phase() && gg->get_cur_leg() != i && (!is_last_double || (is_last_double && gg->get_remain_count() == 1))) ||
+                                                      ((!m_contactStates.data[i] || !gg->is_before_step_phase()) && gg->get_cur_leg() == i && !is_last_double)) ?
+                                                     gg->get_default_step_time() + m_dt : 0);
+      if (st->stikp.size() > i) st->stikp[i].remain_time = remain_time;
+      if (gg->get_footstep_index() > 0 && !is_last_double && st->act_contact_states[contact_states_index_map[leg_names[i]]]) {
+        if (!is_foot_touch[i] && !gg->is_before_step_phase()) {
+          double tmp_ratio = 1.0;
+          touchdown_transition_interpolator[leg_names[i]]->clear();
+          touchdown_transition_interpolator[leg_names[i]]->set(&tmp_ratio);
+          ikp[leg_names[i]].target_p0 = touchdown_foot_pos[i];
+          tmp_ratio = 0.0;
+          touchdown_transition_interpolator[leg_names[i]]->setGoal(&tmp_ratio, remain_time, true);
+          is_foot_touch[i] = true;
+        }
+      }
+    }
+    if (!touchdown_transition_interpolator[leg_names[i]]->isEmpty()) {
+      double tmp_ratio = 0.0;
+      touchdown_transition_interpolator[leg_names[i]]->setGoal(&tmp_ratio, remain_time, true);
+      touchdown_transition_interpolator[leg_names[i]]->get(&tmp_ratio, true);
+      ikp[leg_names[i]].target_p0 = touchdown_foot_pos[i] * tmp_ratio + ikp[leg_names[i]].target_p0 * (1.0 - tmp_ratio);
+    } else {
+      is_foot_touch[i] = false;
+      touchdown_foot_pos[i] = ikp[leg_names[i]].target_p0;
+    }
+  }
+}
 void AutoBalancer::solveFullbodyIK ()
+{
+  // set desired natural pose and pullback gain
+  for(int i=0;i<m_robot->numJoints();i++) fik->q_ref(i) = m_qRef.data[i];
+  fik->revertRobotStateToCurrentAll();
+  {
+    hrp::Vector3 tmpcog = m_robot->calcCM();
+    if (gg_is_walking && use_act_states) {
+      ref_cog.head(2) = (tmpcog + (ref_cog -  (st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cog))).head(2);
+    }
+  }
+  // calc sbp_cog_offset
+  hrp::Vector3 tmp_input_sbp = hrp::Vector3(0,0,0);
+  static_balance_point_proc_one(tmp_input_sbp, ref_zmp(2));
+  ref_cog.head(2) -= sbp_cog_offset.head(2);
+
+  // stopFootForEarlyTouchDown();
+
+    std::vector<IKConstraint> ik_tgt_list;
+    {
+        IKConstraint tmp;
+        tmp.target_link_name = "WAIST";
+        tmp.localPos = hrp::Vector3::Zero();
+        tmp.localR = hrp::Matrix33::Identity();
+        tmp.targetPos = target_root_p;// will be ignored by selection_vec
+        tmp.targetRpy = hrp::rpyFromRot(target_root_R);
+        tmp.constraint_weight << 0,0,0,1e-5,1e-5,1e-5; // COMMON
+        ik_tgt_list.push_back(tmp);
+    }{
+        IKConstraint tmp;
+        tmp.target_link_name = ikp["rleg"].target_link->name;
+        tmp.localPos = ikp["rleg"].localPos;
+        tmp.localR = ikp["rleg"].localR;
+        tmp.targetPos = ikp["rleg"].target_p0;
+        tmp.targetRpy = hrp::rpyFromRot(ikp["rleg"].target_r0);
+        tmp.constraint_weight << 1,1,1,1,1,1;
+        ik_tgt_list.push_back(tmp);
+    }{
+        IKConstraint tmp;
+        tmp.target_link_name = ikp["lleg"].target_link->name;
+        tmp.localPos = ikp["lleg"].localPos;
+        tmp.localR = ikp["lleg"].localR;
+        tmp.targetPos = ikp["lleg"].target_p0;
+        tmp.targetRpy = hrp::rpyFromRot(ikp["lleg"].target_r0);
+        tmp.constraint_weight << 1,1,1,1,1,1;
+        ik_tgt_list.push_back(tmp);
+    }
+    if (ikp.size() >= 4) {
+      if (ikp["rarm"].is_active) {
+        double tmp_const = 1e-6 * transition_interpolator_ratio;
+        IKConstraint tmp;
+        tmp.target_link_name = ikp["rarm"].target_link->name;
+        tmp.localPos = ikp["rarm"].localPos;
+        tmp.localR = ikp["rarm"].localR;
+        tmp.targetPos = ikp["rarm"].target_p0;
+        tmp.targetRpy = hrp::rpyFromRot(ikp["rarm"].target_r0);
+        tmp.constraint_weight << tmp_const,tmp_const,tmp_const,tmp_const,tmp_const,tmp_const;
+        ik_tgt_list.push_back(tmp);
+      }
+      if (ikp["larm"].is_active) {
+        double tmp_const = 1e-6 * transition_interpolator_ratio;
+        IKConstraint tmp;
+        tmp.target_link_name = ikp["larm"].target_link->name;
+        tmp.localPos = ikp["larm"].localPos;
+        tmp.localR = ikp["larm"].localR;
+        tmp.targetPos = ikp["larm"].target_p0;
+        tmp.targetRpy = hrp::rpyFromRot(ikp["larm"].target_r0);
+        tmp.constraint_weight << tmp_const,tmp_const,tmp_const,tmp_const,tmp_const,tmp_const;
+        ik_tgt_list.push_back(tmp);
+      }
+    }
+    {
+        IKConstraint tmp;
+        tmp.target_link_name = "COM";
+        tmp.localPos = hrp::Vector3::Zero();
+        tmp.localR = hrp::Matrix33::Identity();
+        tmp.targetPos = ref_cog;// COM height will not be constraint
+        hrp::Vector3 tmp_tau = gg->get_flywheel_tau();
+        tmp_tau = st->vlimit(tmp_tau, -1000, 1000);
+        tmp.targetRpy = hrp::Vector3::Zero();
+
+        hrp::Vector3 prev_momentum = fik->cur_momentum_around_COM_filtered;
+        m_tmp.data[25] = prev_momentum(0);
+        m_tmp.data[26] = prev_momentum(1);
+        if (gg->get_use_roll_flywheel()) tmp.targetRpy(0) = (prev_momentum + tmp_tau * m_dt)(0);//reference angular momentum
+        if (gg->get_use_pitch_flywheel()) tmp.targetRpy(1) = (prev_momentum + tmp_tau * m_dt)(1);//reference angular momentum
+        double roll_weight, pitch_weight, fly_weight = 1e-3, normal_weight = 1e-7, weight_fly_interpolator_time = 1.0, weight_normal_interpolator_time = 1.5;
+        // roll
+        if (gg->get_use_roll_flywheel()) {
+          if (!prev_roll_state) {
+            if (roll_weight_interpolator->isEmpty()) roll_weight = normal_weight;
+            else roll_weight_interpolator->get(&roll_weight, true);
+            roll_weight_interpolator->set(&roll_weight);
+            roll_weight_interpolator->setGoal(&fly_weight, weight_fly_interpolator_time, true);
+          }
+          if (roll_weight_interpolator->isEmpty()) roll_weight = fly_weight;
+          else roll_weight_interpolator->get(&roll_weight, true);
+        } else {
+          if (prev_roll_state) {
+            if (roll_weight_interpolator->isEmpty()) roll_weight = fly_weight;
+            else roll_weight_interpolator->get(&roll_weight, true);
+            roll_weight_interpolator->set(&roll_weight);
+            roll_weight_interpolator->setGoal(&normal_weight, weight_normal_interpolator_time, true);
+          }
+          if (roll_weight_interpolator->isEmpty()) roll_weight = normal_weight;
+          else roll_weight_interpolator->get(&roll_weight, true);
+        }
+        // pitch
+        if (gg->get_use_pitch_flywheel()) {
+          if (!prev_pitch_state) {
+            if (pitch_weight_interpolator->isEmpty()) pitch_weight = normal_weight;
+            else pitch_weight_interpolator->get(&pitch_weight, true);
+            pitch_weight_interpolator->set(&pitch_weight);
+            pitch_weight_interpolator->setGoal(&fly_weight, weight_fly_interpolator_time, true);
+          }
+          if (pitch_weight_interpolator->isEmpty()) pitch_weight = fly_weight;
+          else pitch_weight_interpolator->get(&pitch_weight, true);
+        } else {
+          if (prev_pitch_state) {
+            if (pitch_weight_interpolator->isEmpty()) pitch_weight = fly_weight;
+            else pitch_weight_interpolator->get(&pitch_weight, true);
+            pitch_weight_interpolator->set(&pitch_weight);
+            pitch_weight_interpolator->setGoal(&normal_weight, weight_normal_interpolator_time, true);
+          }
+          if (pitch_weight_interpolator->isEmpty()) pitch_weight = normal_weight;
+          else pitch_weight_interpolator->get(&pitch_weight, true);
+        }
+        if (!cog_constraint_interpolator->isEmpty()) {
+          cog_constraint_interpolator->get(&cog_z_constraint, true);
+        }
+        tmp.constraint_weight << 1,1,cog_z_constraint,roll_weight*transition_interpolator_ratio,pitch_weight*transition_interpolator_ratio,0; // consider angular momentum (COMMON)
+
+        // 上半身関節角のq_refへの緩い拘束
+        double upper_weight, fly_ratio = 0.0, normal_ratio = 2e-6;
+        if (gg->get_use_roll_flywheel() || gg->get_use_pitch_flywheel()) {
+          if (!prev_roll_state && !prev_pitch_state) {
+            if (angular_momentum_interpolator->isEmpty()) upper_weight = normal_ratio;
+            else angular_momentum_interpolator->get(&upper_weight, true);
+            angular_momentum_interpolator->set(&upper_weight);
+            angular_momentum_interpolator->setGoal(&fly_ratio, weight_fly_interpolator_time, true);
+          }
+          if (angular_momentum_interpolator->isEmpty()) upper_weight = fly_ratio;
+          else angular_momentum_interpolator->get(&upper_weight, true);
+        } else {
+          if (prev_roll_state || prev_pitch_state) {
+            if (angular_momentum_interpolator->isEmpty()) upper_weight = fly_ratio;
+            else angular_momentum_interpolator->get(&upper_weight, true);
+            angular_momentum_interpolator->set(&upper_weight);
+            angular_momentum_interpolator->setGoal(&normal_ratio, weight_normal_interpolator_time, true);
+          }
+          if (angular_momentum_interpolator->isEmpty()) upper_weight = normal_ratio;
+          else angular_momentum_interpolator->get(&upper_weight, true);
+        }
+        fik->q_ref_constraint_weight.fill(upper_weight);
+
+        prev_roll_state = gg->get_use_roll_flywheel();
+        prev_pitch_state = gg->get_use_pitch_flywheel();
+        fik->q_ref_constraint_weight.segment(fik->ikp["rleg"].group_indices.back(), fik->ikp["rleg"].group_indices.size()).fill(0);
+        fik->q_ref_constraint_weight.segment(fik->ikp["lleg"].group_indices.back(), fik->ikp["lleg"].group_indices.size()).fill(0);
+
+//        tmp.rot_precision = 1e-1;//angular momentum precision
+        ik_tgt_list.push_back(tmp);
+    }
+    // knee stretch protection
+    if(m_robot->link("RLEG_JOINT3") != NULL) m_robot->link("RLEG_JOINT3")->llimit = deg2rad(5);
+    if(m_robot->link("LLEG_JOINT3") != NULL) m_robot->link("LLEG_JOINT3")->llimit = deg2rad(5);
+    if(m_robot->link("R_KNEE_P") != NULL) m_robot->link("R_KNEE_P")->llimit = deg2rad(5);
+    if(m_robot->link("L_KNEE_P") != NULL) m_robot->link("L_KNEE_P")->llimit = deg2rad(5);
+    // reduce chest joint move
+    if(m_robot->link("HEAD_JOINT0") != NULL) fik->dq_weight_all(m_robot->link("HEAD_JOINT0")->jointId) = 10;
+    if(m_robot->link("HEAD_JOINT1") != NULL) fik->dq_weight_all(m_robot->link("HEAD_JOINT1")->jointId) = 10;
+    // reduce chest joint move
+    if(m_robot->link("CHEST_JOINT0") != NULL) fik->dq_weight_all(m_robot->link("CHEST_JOINT0")->jointId) = 10;
+    if(m_robot->link("CHEST_JOINT1") != NULL) fik->dq_weight_all(m_robot->link("CHEST_JOINT1")->jointId) = 10;
+    if(m_robot->link("CHEST_JOINT2") != NULL) fik->dq_weight_all(m_robot->link("CHEST_JOINT2")->jointId) = 10;
+    if(m_robot->link("CHEST_Y") != NULL) fik->dq_weight_all(m_robot->link("CHEST_Y")->jointId) = 10;
+    if(m_robot->link("CHEST_P") != NULL) fik->dq_weight_all(m_robot->link("CHEST_P")->jointId) = 10;
+    // fik->dq_weight_all.tail(3).fill(1e1);//ベースリンク回転変位の重みは1e1以下は暴れる？
+    fik->rootlink_rpy_llimit << deg2rad(-15), deg2rad(-95), -DBL_MAX;
+    fik->rootlink_rpy_ulimit << deg2rad(15), deg2rad(95), DBL_MAX;
+
+  int loop_result = 0;
+  const int IK_MAX_LOOP = 1;
+  loop_result = fik->solveFullbodyIKLoop(m_robot, ik_tgt_list, IK_MAX_LOOP);
+}
+
+void AutoBalancer::solveSimpleFullbodyIK ()
 {
   // Set ik target params
   fik->target_root_p = target_root_p;
   fik->target_root_R = target_root_R;
-  for ( std::map<std::string, SimpleFullbodyInverseKinematicsSolver::IKparam>::iterator it = fik->ikp.begin(); it != fik->ikp.end(); it++ ) {
+  for ( std::map<std::string, FullbodyInverseKinematicsSolver::IKparam>::iterator it = fik->ikp.begin(); it != fik->ikp.end(); it++ ) {
       it->second.target_p0 = ikp[it->first].target_p0;
       it->second.target_r0 = ikp[it->first].target_r0;
   }
@@ -1095,9 +1735,52 @@ void AutoBalancer::solveFullbodyIK ()
   hrp::Vector3 tmp_input_sbp = hrp::Vector3(0,0,0);
   static_balance_point_proc_one(tmp_input_sbp, ref_zmp(2));
   hrp::Vector3 dif_cog = tmp_input_sbp - ref_cog;
+
   // Solve IK
   fik->solveFullbodyIK (dif_cog, transition_interpolator->isEmpty());
+  for (size_t i = 0; i < 2; i++) { // ik loop
+    dif_cog = m_robot->calcCM() - ref_cog - dif_ref_act_cog;
+    fik->solveSimpleFullbodyIKLoop(dif_cog, transition_interpolator->isEmpty());
+  }
 }
+
+void AutoBalancer::limit_cog (hrp::Vector3& cog)
+{
+  if (transition_interpolator->isEmpty() && !gg_is_walking && is_after_walking) {
+    std::vector<double> start_pos(3), start_vel(3), goal_pos(3);
+    double tmp_time = 5.0;
+    for (size_t i = 0; i < 3; i++) {
+      start_pos[i] = orig_cog(i);
+      start_vel[i] = (orig_cog(i) - prev_orig_cog(i)) / m_dt;
+      goal_pos[i] = cog(i);
+    }
+    limit_cog_interpolator->set(start_pos.data(), start_vel.data());
+    limit_cog_interpolator->setGoal(goal_pos.data(), tmp_time, true);
+    is_after_walking = false;
+  }
+  if (!limit_cog_interpolator->isEmpty()) {
+    limited_dif_cog = cog;
+    std::vector<double> tmp_v(3);
+    limit_cog_interpolator->get(tmp_v.data(), true);
+    for (size_t i = 0; i < 3; i++) {
+      cog(i) = tmp_v[i];
+    }
+    limited_dif_cog -= cog;
+    limited_dif_cog(2) = 0.0;
+  }
+}
+
+bool AutoBalancer::vlimit(double& ret, const double llimit_value, const double ulimit_value)
+{
+  if (ret > ulimit_value) {
+    ret = ulimit_value;
+    return false;
+  } else if (ret < llimit_value) {
+    ret = llimit_value;
+    return false;
+  }
+  return true;
+};
 
 
 /*
@@ -1170,12 +1853,34 @@ void AutoBalancer::stopABCparam()
   control_mode = MODE_SYNC_TO_IDLE;
 }
 
+void AutoBalancer::stopABCparamEmergency()
+{
+  std::cerr << "[" << m_profile.instance_name << "] stop auto balancer mode for emergency" << std::endl;
+  double tmp_ratio = 1.0, tmp_time = (gg->is_emergency_touch_wall && is_emergency_touch_wall_mode) ? 0.8 : 0.8;
+  emergency_transition_interpolator->clear();
+  emergency_transition_interpolator->set(&tmp_ratio);
+  tmp_ratio = 0.0;
+  emergency_transition_interpolator->setGoal(&tmp_ratio, tmp_time, true);
+  for (int i = 0; i < m_robot->numJoints(); i++ ) {
+    diff_q[i] = m_robot->joint(i)->q - m_qRef.data[i];
+  }
+  control_mode = MODE_IDLE;
+  gg->clear_footstep_nodes_list();
+  for ( std::map<std::string, interpolator*>::iterator it = touchdown_transition_interpolator.begin(); it != touchdown_transition_interpolator.end(); it++ ) {
+    it->second->clear();
+  }
+  gg_is_walking = false;
+}
+
 bool AutoBalancer::startWalking ()
 {
   if ( control_mode != MODE_ABC ) {
     std::cerr << "[" << m_profile.instance_name << "] Cannot start walking without MODE_ABC. Please startAutoBalancer." << std::endl;
     return false;
   }
+  hrp::Vector3 act_cog = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cog;
+  hrp::Vector3 act_cogvel = st->ref_foot_origin_rot * st->act_cogvel;
+  hrp::Vector3 act_cmp = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cmp;
   {
     Guard guard(m_mutex);
     fik->resetIKFailParam();
@@ -1193,13 +1898,15 @@ bool AutoBalancer::startWalking ()
     for (std::vector<std::string>::iterator it = init_swing_leg_names.begin(); it != init_swing_leg_names.end(); it++)
         init_swing_leg_dst_steps.push_back(step_node(*it, coordinates(ikp[*it].target_p0, ikp[*it].target_r0), 0, 0, 0, 0));
     gg->set_default_zmp_offsets(default_zmp_offsets);
-    gg->initialize_gait_parameter(ref_cog, init_support_leg_steps, init_swing_leg_dst_steps);
+    gg->initialize_gait_parameter(act_cog, ref_cog, init_support_leg_steps, init_swing_leg_dst_steps);
   }
   is_hand_fix_initial = true;
-  while ( !gg->proc_one_tick() );
+  while ( !gg->proc_one_tick(act_cog, act_cogvel, act_cmp) );
   {
     Guard guard(m_mutex);
     gg_is_walking = gg_solved = true;
+    is_after_walking = true;
+    limit_cog_interpolator->clear();
   }
   return true;
 }
@@ -1239,6 +1946,16 @@ bool AutoBalancer::stopAutoBalancer ()
   }
 }
 
+void AutoBalancer::startStabilizer(void)
+{
+  st->startStabilizer();
+}
+
+void AutoBalancer::stopStabilizer(void)
+{
+  st->stopStabilizer();
+}
+
 void AutoBalancer::waitABCTransition()
 {
   while (!transition_interpolator->isEmpty()) usleep(1000);
@@ -1254,6 +1971,8 @@ bool AutoBalancer::goPos(const double& x, const double& y, const double& th)
     std::vector<leg_type> initial_support_legs;
     bool is_valid_gait_type = calc_inital_support_legs(y, initial_support_legs_coords, initial_support_legs, start_ref_coords);
     if (is_valid_gait_type == false) return false;
+    gg->set_vel_foot_offset(start_ref_coords.rot.transpose() * (ikp["rleg"].target_p0 - start_ref_coords.pos), RLEG);
+    gg->set_vel_foot_offset(start_ref_coords.rot.transpose() * (ikp["lleg"].target_p0 - start_ref_coords.pos), LLEG);
     bool ret = gg->go_pos_param_2_footstep_nodes_list(x, y, th,
                                                       initial_support_legs_coords, // Dummy if gg_is_walking
                                                       start_ref_coords,            // Dummy if gg_is_walking
@@ -1274,42 +1993,63 @@ bool AutoBalancer::goPos(const double& x, const double& y, const double& th)
 
 bool AutoBalancer::goVelocity(const double& vx, const double& vy, const double& vth)
 {
-  gg->set_all_limbs(leg_names);
-  bool ret = true;
-  if (gg_is_walking && gg_solved) {
-    gg->set_velocity_param(vx, vy, vth);
-  } else {
-    coordinates ref_coords;
-    ref_coords.pos = (ikp["rleg"].target_p0+ikp["lleg"].target_p0)*0.5;
-    mid_rot(ref_coords.rot, 0.5, ikp["rleg"].target_r0, ikp["lleg"].target_r0);
-    std::vector<leg_type> current_legs;
-    switch(gait_type) {
-    case BIPED:
+  if (!is_stop_mode) {
+    gg->set_all_limbs(leg_names);
+    bool ret = true;
+    if (gg_is_walking && gg_solved) {
+      gg->set_velocity_param(vx, vy, vth);
+      // std::vector<double> tmp_v(3), target_v(3);
+      // target_v[0]  = vx;
+      // target_v[1]  = vy;
+      // target_v[2]  = vth;
+      // double transition_time = 5.0;
+      // if (go_vel_interpolator->isEmpty()) {
+      //   go_vel_interpolator->clear();
+      //   go_vel_interpolator->setGoal(target_v.data(), transition_time, true);
+      // } else {
+      //   go_vel_interpolator->setGoal(target_v.data(), transition_time, true);
+      // }
+      // go_vel_interpolator->get(tmp_v.data(), true);
+      // gg->set_velocity_param(tmp_v[0], tmp_v[1], tmp_v[2]);
+    } else {
+      coordinates ref_coords;
+      ref_coords.pos = (ikp["rleg"].target_p0+ikp["lleg"].target_p0)*0.5;
+      mid_rot(ref_coords.rot, 0.5, ikp["rleg"].target_r0, ikp["lleg"].target_r0);
+      std::vector<leg_type> current_legs;
+      switch(gait_type) {
+      case BIPED:
         current_legs.assign (1, vy > 0 ? RLEG : LLEG);
         break;
-    case TROT:
+      case TROT:
         current_legs = (vy > 0 ? boost::assign::list_of(RLEG)(LARM) : boost::assign::list_of(LLEG)(RARM)).convert_to_container < std::vector<leg_type> > ();
         break;
-    case PACE:
+      case PACE:
         current_legs = (vy > 0 ? boost::assign::list_of(RLEG)(RARM) : boost::assign::list_of(LLEG)(LARM)).convert_to_container < std::vector<leg_type> > ();
         break;
-    case CRAWL:
+      case CRAWL:
         std::cerr << "[" << m_profile.instance_name << "] crawl walk[" << gait_type << "] is not implemented yet." << std::endl;
         return false;
-    case GALLOP:
+      case GALLOP:
         /* at least one leg shoud be in contact */
         std::cerr << "[" << m_profile.instance_name << "] gallop walk[" << gait_type << "] is not implemented yet." << std::endl;
         return false;
-    default: break;
+      default: break;
+      }
+      gg->set_vel_foot_offset(ref_coords.rot.transpose() * (ikp["rleg"].target_p0 - ref_coords.pos), RLEG);
+      gg->set_vel_foot_offset(ref_coords.rot.transpose() * (ikp["lleg"].target_p0 - ref_coords.pos), LLEG);
+      gg->initialize_velocity_mode(ref_coords, vx, vy, vth, current_legs);
+      ret = startWalking();
     }
-    gg->initialize_velocity_mode(ref_coords, vx, vy, vth, current_legs);
-    ret = startWalking();
+    return ret;
+  } else {
+    std::cerr << "[" << m_profile.instance_name << "] Cannot goVelocity while stopping mode." << std::endl;
+    return false;
   }
-  return ret;
 }
 
 bool AutoBalancer::goStop ()
 {
+  go_vel_interpolator->clear();
   gg->finalize_velocity_mode();
   waitFootSteps();
   return true;
@@ -1515,7 +2255,7 @@ bool AutoBalancer::setGaitGeneratorParam(const OpenHRP::AutoBalancerService::Gai
   gg->set_swing_trajectory_final_distance_weight(i_param.swing_trajectory_final_distance_weight);
   gg->set_swing_trajectory_time_offset_xy2z(i_param.swing_trajectory_time_offset_xy2z);
   gg->set_stair_trajectory_way_point_offset(hrp::Vector3(i_param.stair_trajectory_way_point_offset[0], i_param.stair_trajectory_way_point_offset[1], i_param.stair_trajectory_way_point_offset[2]));
-  gg->set_cycloid_delay_kick_point_offset(hrp::Vector3(i_param.cycloid_delay_kick_point_offset[0], i_param.cycloid_delay_kick_point_offset[1], i_param.cycloid_delay_kick_point_offset[2]));  
+  gg->set_cycloid_delay_kick_point_offset(hrp::Vector3(i_param.cycloid_delay_kick_point_offset[0], i_param.cycloid_delay_kick_point_offset[1], i_param.cycloid_delay_kick_point_offset[2]));
   gg->set_gravitational_acceleration(i_param.gravitational_acceleration);
   gg->set_toe_angle(i_param.toe_angle);
   gg->set_heel_angle(i_param.heel_angle);
@@ -1535,11 +2275,15 @@ bool AutoBalancer::setGaitGeneratorParam(const OpenHRP::AutoBalancerService::Gai
   gg->set_optional_go_pos_finalize_footstep_num(i_param.optional_go_pos_finalize_footstep_num);
   gg->set_overwritable_footstep_index_offset(i_param.overwritable_footstep_index_offset);
   gg->set_leg_margin(i_param.leg_margin);
+  gg->set_safe_leg_margin(i_param.safe_leg_margin);
+  gg->set_vertices_from_leg_margin();
   gg->set_stride_limitation_for_circle_type(i_param.stride_limitation_for_circle_type);
   gg->set_overwritable_stride_limitation(i_param.overwritable_stride_limitation);
   gg->set_use_stride_limitation(i_param.use_stride_limitation);
   gg->set_footstep_modification_gain(i_param.footstep_modification_gain);
   gg->set_modify_footsteps(i_param.modify_footsteps);
+  gg->set_min_time_mgn(i_param.min_time_mgn);
+  gg->set_min_time(i_param.min_time);
   gg->set_cp_check_margin(i_param.cp_check_margin);
   gg->set_margin_time_ratio(i_param.margin_time_ratio);
   if (i_param.stride_limitation_type == OpenHRP::AutoBalancerService::SQUARE) {
@@ -1547,6 +2291,18 @@ bool AutoBalancer::setGaitGeneratorParam(const OpenHRP::AutoBalancerService::Gai
   } else if (i_param.stride_limitation_type == OpenHRP::AutoBalancerService::CIRCLE) {
     gg->set_stride_limitation_type(CIRCLE);
   }
+  gg->set_act_vel_ratio(i_param.act_vel_ratio);
+  gg->set_use_disturbance_compensation(i_param.use_disturbance_compensation);
+  gg->set_dc_gain(i_param.dc_gain);
+  gg->set_dcm_offset(i_param.dcm_offset);
+  gg->set_emergency_step_time(i_param.emergency_step_time);
+  gg->use_act_states = st->use_act_states = i_param.use_act_states;
+  gg->zmp_delay_time_const = i_param.zmp_delay_time_const;
+  gg->overwritable_max_time = i_param.overwritable_max_time;
+  gg->fg_zmp_cutoff_freq = i_param.fg_zmp_cutoff_freq;
+  gg->cp_filter->setCutOffFreq(i_param.fg_cp_cutoff_freq);
+  gg->set_sum_d_footstep_thre(hrp::Vector3(i_param.sum_d_footstep_thre[0], i_param.sum_d_footstep_thre[1], i_param.sum_d_footstep_thre[2]));
+  gg->set_footstep_check_delta(hrp::Vector3(i_param.footstep_check_delta[0], i_param.footstep_check_delta[1], i_param.footstep_check_delta[2]));
 
   // print
   gg->print_param(std::string(m_profile.instance_name));
@@ -1623,6 +2379,9 @@ bool AutoBalancer::getGaitGeneratorParam(OpenHRP::AutoBalancerService::GaitGener
   for (size_t i=0; i<4; i++) {
     i_param.leg_margin[i] = gg->get_leg_margin(i);
   }
+  for (size_t i=0; i<4; i++) {
+    i_param.safe_leg_margin[i] = gg->get_safe_leg_margin(i);
+  }
   for (size_t i=0; i<5; i++) {
     i_param.stride_limitation_for_circle_type[i] = gg->get_stride_limitation_for_circle_type(i);
   }
@@ -1632,6 +2391,8 @@ bool AutoBalancer::getGaitGeneratorParam(OpenHRP::AutoBalancerService::GaitGener
   i_param.use_stride_limitation = gg->get_use_stride_limitation();
   i_param.footstep_modification_gain = gg->get_footstep_modification_gain();
   i_param.modify_footsteps = gg->get_modify_footsteps();
+  i_param.min_time_mgn = gg->get_min_time_mgn();
+  i_param.min_time = gg->get_min_time();
   for (size_t i=0; i<2; i++) {
     i_param.cp_check_margin[i] = gg->get_cp_check_margin(i);
   }
@@ -1640,6 +2401,27 @@ bool AutoBalancer::getGaitGeneratorParam(OpenHRP::AutoBalancerService::GaitGener
     i_param.stride_limitation_type = OpenHRP::AutoBalancerService::SQUARE;
   } else if (gg->get_stride_limitation_type() == CIRCLE) {
     i_param.stride_limitation_type = OpenHRP::AutoBalancerService::CIRCLE;
+  }
+  i_param.act_vel_ratio = gg->get_act_vel_ratio();
+  i_param.use_disturbance_compensation = gg->get_use_disturbance_compensation();
+  i_param.dc_gain = gg->get_dc_gain();
+  i_param.dcm_offset = gg->get_dcm_offset();
+  for (size_t i = 0; i < 3; i++) {
+    i_param.emergency_step_time[i] = gg->get_emergency_step_time(i);
+  }
+  i_param.use_act_states = gg->use_act_states;
+  i_param.zmp_delay_time_const = gg->zmp_delay_time_const;
+  i_param.overwritable_max_time = gg->overwritable_max_time;
+  i_param.fg_zmp_cutoff_freq = gg->fg_zmp_cutoff_freq;
+  i_param.fg_cp_cutoff_freq = gg->cp_filter->getCutOffFreq();
+  {
+    hrp::Vector3 thre, delta;
+    gg->get_sum_d_footstep_thre(thre);
+    gg->get_footstep_check_delta(delta);
+    for (size_t i = 0; i < 3; i++) {
+      i_param.sum_d_footstep_thre[i] = thre(i);
+      i_param.footstep_check_delta[i] = delta(i);
+    }
   }
   return true;
 };
@@ -1656,6 +2438,8 @@ bool AutoBalancer::setAutoBalancerParam(const OpenHRP::AutoBalancerService::Auto
   adjust_footstep_transition_time = i_param.adjust_footstep_transition_time;
   if (zmp_offset_interpolator->isEmpty()) {
       zmp_offset_interpolator->clear();
+      zmp_offset_interpolator->setGoal(default_zmp_offsets_array, zmp_transition_time, true);
+  } else if (control_mode == MODE_IDLE) {
       zmp_offset_interpolator->setGoal(default_zmp_offsets_array, zmp_transition_time, true);
   } else {
       std::cerr << "[" << m_profile.instance_name << "]   default_zmp_offsets cannot be set because interpolating." << std::endl;
@@ -1790,6 +2574,23 @@ bool AutoBalancer::setAutoBalancerParam(const OpenHRP::AutoBalancerService::Auto
   for (size_t i = 0; i < fik->ikp.size(); i++) {
     fik->ikp[ee_vec[i]].limb_length_margin = i_param.limb_length_margin[i];
   }
+  is_emergency_step_mode = i_param.is_emergency_step_mode;
+  is_emergency_touch_wall_mode = i_param.is_emergency_touch_wall_mode;
+  if (control_mode == MODE_IDLE) {
+    ik_mode = i_param.ik_mode;
+    std::cerr << "[" << m_profile.instance_name << "]   ik_mode = " << ik_mode << std::endl;
+  } else {
+    std::cerr << "[" << m_profile.instance_name << "]   ik_mode cannot be set in (control_mode != MODE_IDLE). Current ik_mode is " << ik_mode << std::endl;
+  }
+  if (cog_constraint_interpolator->isEmpty()) {
+    double tmp_time = 1.0;
+    cog_constraint_interpolator->clear();
+    cog_constraint_interpolator->set(&cog_z_constraint);
+    cog_constraint_interpolator->setGoal(&i_param.cog_z_constraint, tmp_time, true);
+  } else {
+    std::cerr << "[" << m_profile.instance_name << "]   cog_z_constraint cannot be set because interpolating." << std::endl;
+  }
+  touch_wall_retrieve_time = i_param.touch_wall_retrieve_time;
   return true;
 };
 
@@ -1871,8 +2672,502 @@ bool AutoBalancer::getAutoBalancerParam(OpenHRP::AutoBalancerService::AutoBalanc
   for (size_t i = 0; i < 3; i++) {
       i_param.additional_force_applied_point_offset[i] = additional_force_applied_point_offset(i);
   }
+  i_param.is_emergency_step_mode = is_emergency_step_mode;
+  i_param.is_emergency_touch_wall_mode = is_emergency_touch_wall_mode;
+  i_param.ik_mode = ik_mode;
+  i_param.cog_z_constraint = cog_z_constraint;
+  i_param.touch_wall_retrieve_time = touch_wall_retrieve_time;
   return true;
 };
+
+void AutoBalancer::setStabilizerParam(const OpenHRP::AutoBalancerService::StabilizerParam& i_param)
+{
+  Guard guard(m_mutex);
+  std::cerr << "[" << m_profile.instance_name << "] setStabilizerParam" << std::endl;
+  for (size_t i = 0; i < 2; i++) {
+    st->k_tpcc_p[i] = i_param.k_tpcc_p[i];
+    st->k_tpcc_x[i] = i_param.k_tpcc_x[i];
+    st->k_brot_p[i] = i_param.k_brot_p[i];
+    st->k_brot_tc[i] = i_param.k_brot_tc[i];
+  }
+  std::cerr << "[" << m_profile.instance_name << "]  TPCC" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   k_tpcc_p  = [" << st->k_tpcc_p[0] << ", " <<  st->k_tpcc_p[1] << "], k_tpcc_x  = [" << st->k_tpcc_x[0] << ", " << st->k_tpcc_x[1] << "], k_brot_p  = [" << st->k_brot_p[0] << ", " << st->k_brot_p[1] << "], k_brot_tc = [" << st->k_brot_tc[0] << ", " << st->k_brot_tc[1] << "]" << std::endl;
+  // for (size_t i = 0; i < 2; i++) {
+  //   k_run_b[i] = i_param.k_run_b[i];
+  //   d_run_b[i] = i_param.d_run_b[i];
+  //   m_tau_x[i].setup(i_param.tdfke[0], i_param.tdftc[0], dt);
+  //   m_tau_y[i].setup(i_param.tdfke[0], i_param.tdftc[0], dt);
+  //   m_f_z.setup(i_param.tdfke[1], i_param.tdftc[1], dt);
+  // }
+  // m_torque_k[0] = i_param.k_run_x;
+  // m_torque_k[1] = i_param.k_run_y;
+  // m_torque_d[0] = i_param.d_run_x;
+  // m_torque_d[1] = i_param.d_run_y;
+  // std::cerr << "[" << m_profile.instance_name << "]  RUNST" << std::endl;
+  // std::cerr << "[" << m_profile.instance_name << "]   m_torque_k  = [" << m_torque_k[0] << ", " <<  m_torque_k[1] << "]" << std::endl;
+  // std::cerr << "[" << m_profile.instance_name << "]   m_torque_d  = [" << m_torque_d[0] << ", " <<  m_torque_d[1] << "]" << std::endl;
+  // std::cerr << "[" << m_profile.instance_name << "]   k_run_b  = [" << k_run_b[0] << ", " <<  k_run_b[1] << "]" << std::endl;
+  // std::cerr << "[" << m_profile.instance_name << "]   d_run_b  = [" << d_run_b[0] << ", " <<  d_run_b[1] << "]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]  EEFM" << std::endl;
+  for (size_t i = 0; i < 2; i++) {
+    st->eefm_k1[i] = i_param.eefm_k1[i];
+    st->eefm_k2[i] = i_param.eefm_k2[i];
+    st->eefm_k3[i] = i_param.eefm_k3[i];
+    st->eefm_zmp_delay_time_const[i] = i_param.eefm_zmp_delay_time_const[i];
+    st->ref_zmp_aux(i) = i_param.eefm_ref_zmp_aux[i];
+    st->eefm_body_attitude_control_gain[i] = i_param.eefm_body_attitude_control_gain[i];
+    st->eefm_body_attitude_control_time_const[i] = i_param.eefm_body_attitude_control_time_const[i];
+    st->ref_cp(i) = i_param.ref_capture_point[i];
+    st->act_cp(i) = i_param.act_capture_point[i];
+    st->cp_offset(i) = i_param.cp_offset[i];
+  }
+  bool is_damping_parameter_ok = true;
+  if ( i_param.eefm_pos_damping_gain.length () == st->stikp.size() &&
+       i_param.eefm_pos_time_const_support.length () == st->stikp.size() &&
+       i_param.eefm_pos_compensation_limit.length () == st->stikp.size() &&
+       i_param.eefm_swing_pos_spring_gain.length () == st->stikp.size() &&
+       i_param.eefm_swing_pos_time_const.length () == st->stikp.size() &&
+       i_param.eefm_rot_damping_gain.length () == st->stikp.size() &&
+       i_param.eefm_rot_time_const.length () == st->stikp.size() &&
+       i_param.eefm_rot_compensation_limit.length () == st->stikp.size() &&
+       i_param.eefm_swing_rot_spring_gain.length () == st->stikp.size() &&
+       i_param.eefm_swing_rot_time_const.length () == st->stikp.size() &&
+       i_param.eefm_ee_moment_limit.length () == st->stikp.size() &&
+       i_param.eefm_ee_forcemoment_distribution_weight.length () == st->stikp.size()) {
+    is_damping_parameter_ok = true;
+    for (size_t j = 0; j < st->stikp.size(); j++) {
+      for (size_t i = 0; i < 3; i++) {
+        st->stikp[j].eefm_pos_damping_gain(i) = i_param.eefm_pos_damping_gain[j][i];
+        st->stikp[j].eefm_pos_time_const_support(i) = i_param.eefm_pos_time_const_support[j][i];
+        st->stikp[j].eefm_swing_pos_spring_gain(i) = i_param.eefm_swing_pos_spring_gain[j][i];
+        st->stikp[j].eefm_swing_pos_time_const(i) = i_param.eefm_swing_pos_time_const[j][i];
+        st->stikp[j].eefm_rot_damping_gain(i) = i_param.eefm_rot_damping_gain[j][i];
+        st->stikp[j].eefm_rot_time_const(i) = i_param.eefm_rot_time_const[j][i];
+        st->stikp[j].eefm_swing_rot_spring_gain(i) = i_param.eefm_swing_rot_spring_gain[j][i];
+        st->stikp[j].eefm_swing_rot_time_const(i) = i_param.eefm_swing_rot_time_const[j][i];
+        st->stikp[j].eefm_ee_moment_limit(i) = i_param.eefm_ee_moment_limit[j][i];
+        st->stikp[j].eefm_ee_forcemoment_distribution_weight(i) = i_param.eefm_ee_forcemoment_distribution_weight[j][i];
+        st->stikp[j].eefm_ee_forcemoment_distribution_weight(i+3) = i_param.eefm_ee_forcemoment_distribution_weight[j][i+3];
+      }
+      st->stikp[j].eefm_pos_compensation_limit = i_param.eefm_pos_compensation_limit[j];
+      st->stikp[j].eefm_rot_compensation_limit = i_param.eefm_rot_compensation_limit[j];
+    }
+  } else {
+    is_damping_parameter_ok = false;
+  }
+  for (size_t i = 0; i < 3; i++) {
+    st->eefm_swing_pos_damping_gain(i) = i_param.eefm_swing_pos_damping_gain[i];
+    st->eefm_swing_rot_damping_gain(i) = i_param.eefm_swing_rot_damping_gain[i];
+  }
+  st->eefm_pos_time_const_swing = i_param.eefm_pos_time_const_swing;
+  st->eefm_pos_transition_time = i_param.eefm_pos_transition_time;
+  st->eefm_pos_margin_time = i_param.eefm_pos_margin_time;
+  st->szd->set_leg_inside_margin(i_param.eefm_leg_inside_margin);
+  st->szd->set_leg_outside_margin(i_param.eefm_leg_outside_margin);
+  st->szd->set_leg_front_margin(i_param.eefm_leg_front_margin);
+  st->szd->set_leg_rear_margin(i_param.eefm_leg_rear_margin);
+  st->szd->set_vertices_from_margin_params();
+
+  if (i_param.eefm_support_polygon_vertices_sequence.length() != st->stikp.size()) {
+    std::cerr << "[" << m_profile.instance_name << "]   eefm_support_polygon_vertices_sequence cannot be set. Length " << i_param.eefm_support_polygon_vertices_sequence.length() << " != " << st->stikp.size() << std::endl;
+  } else {
+    std::cerr << "[" << m_profile.instance_name << "]   eefm_support_polygon_vertices_sequence set" << std::endl;
+    std::vector<std::vector<Eigen::Vector2d> > support_polygon_vec;
+    for (size_t ee_idx = 0; ee_idx < i_param.eefm_support_polygon_vertices_sequence.length(); ee_idx++) {
+      std::vector<Eigen::Vector2d> tvec;
+      for (size_t v_idx = 0; v_idx < i_param.eefm_support_polygon_vertices_sequence[ee_idx].vertices.length(); v_idx++) {
+        tvec.push_back(Eigen::Vector2d(i_param.eefm_support_polygon_vertices_sequence[ee_idx].vertices[v_idx].pos[0],
+                                       i_param.eefm_support_polygon_vertices_sequence[ee_idx].vertices[v_idx].pos[1]));
+      }
+      support_polygon_vec.push_back(tvec);
+    }
+    st->szd->set_vertices(support_polygon_vec);
+    st->szd->print_vertices(std::string(m_profile.instance_name));
+  }
+  st->eefm_use_force_difference_control = i_param.eefm_use_force_difference_control;
+  st->eefm_use_swing_damping = i_param.eefm_use_swing_damping;
+  for (size_t i = 0; i < 3; ++i) {
+    st->eefm_swing_damping_force_thre[i] = i_param.eefm_swing_damping_force_thre[i];
+    st->eefm_swing_damping_moment_thre[i] = i_param.eefm_swing_damping_moment_thre[i];
+  }
+  st->act_cogvel_filter->setCutOffFreq(i_param.eefm_cogvel_cutoff_freq);
+  st->szd->set_wrench_alpha_blending(i_param.eefm_wrench_alpha_blending);
+  st->szd->set_alpha_cutoff_freq(i_param.eefm_alpha_cutoff_freq);
+  st->eefm_gravitational_acceleration = i_param.eefm_gravitational_acceleration;
+  for (size_t i = 0; i < st->stikp.size(); i++) {
+    st->stikp[i].target_ee_diff_p_filter->setCutOffFreq(i_param.eefm_ee_error_cutoff_freq);
+    st->stikp[i].target_ee_diff_r_filter->setCutOffFreq(i_param.eefm_ee_error_cutoff_freq);
+    st->stikp[i].limb_length_margin = i_param.limb_length_margin[i];
+  }
+  st->setBoolSequenceParam(st->is_ik_enable, i_param.is_ik_enable, std::string("is_ik_enable"));
+  st->setBoolSequenceParamWithCheckContact(st->is_feedback_control_enable, i_param.is_feedback_control_enable, std::string("is_feedback_control_enable"));
+  st->setBoolSequenceParam(st->is_zmp_calc_enable, i_param.is_zmp_calc_enable, std::string("is_zmp_calc_enable"));
+  st->emergency_check_mode = i_param.emergency_check_mode;
+
+  st->transition_time = i_param.transition_time;
+  st->cop_check_margin = i_param.cop_check_margin;
+  for (size_t i = 0; i < st->cp_check_margin.size(); i++) {
+    st->cp_check_margin[i] = i_param.cp_check_margin[i];
+ }
+  st->szd->set_vertices_from_margin_params(st->cp_check_margin);
+  for (size_t i = 0; i < st->tilt_margin.size(); i++) {
+    st->tilt_margin[i] = i_param.tilt_margin[i];
+  }
+  st->contact_decision_threshold = i_param.contact_decision_threshold;
+  st->is_estop_while_walking = i_param.is_estop_while_walking;
+  st->use_limb_stretch_avoidance = i_param.use_limb_stretch_avoidance;
+  st->use_zmp_truncation = i_param.use_zmp_truncation;
+  for (size_t i = 0; i < 2; i++) {
+    st->limb_stretch_avoidance_vlimit[i] = i_param.limb_stretch_avoidance_vlimit[i];
+    st->root_rot_compensation_limit[i] = i_param.root_rot_compensation_limit[i];
+  }
+  st->detection_count_to_air = static_cast<int>(i_param.detection_time_to_air / m_dt);
+  if (st->control_mode == Stabilizer::MODE_IDLE) {
+    for (size_t i = 0; i < i_param.end_effector_list.length(); i++) {
+      std::vector<Stabilizer::STIKParam>::iterator it = std::find_if(st->stikp.begin(), st->stikp.end(), (&boost::lambda::_1->* &std::vector<Stabilizer::STIKParam>::value_type::ee_name == std::string(i_param.end_effector_list[i].leg)));
+      memcpy(it->localp.data(), i_param.end_effector_list[i].pos, sizeof(double)*3);
+      it->localR = (Eigen::Quaternion<double>(i_param.end_effector_list[i].rot[0], i_param.end_effector_list[i].rot[1], i_param.end_effector_list[i].rot[2], i_param.end_effector_list[i].rot[3])).normalized().toRotationMatrix();
+    }
+  } else {
+    std::cerr << "[" << m_profile.instance_name << "] cannot change end-effectors except during MODE_IDLE" << std::endl;
+  }
+  for (std::vector<Stabilizer::STIKParam>::const_iterator it = st->stikp.begin(); it != st->stikp.end(); it++) {
+    std::cerr << "[" << m_profile.instance_name << "]  End Effector [" << it->ee_name << "]" << std::endl;
+    std::cerr << "[" << m_profile.instance_name << "]   localpos = " << it->localp.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << "[m]" << std::endl;
+    std::cerr << "[" << m_profile.instance_name << "]   localR = " << it->localR.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", "", "    [", "]")) << std::endl;
+  }
+  if (i_param.foot_origin_offset.length () != 2) {
+    std::cerr << "[" << m_profile.instance_name << "]   foot_origin_offset cannot be set. Length " << i_param.foot_origin_offset.length() << " != " << 2 << std::endl;
+  } else if (st->control_mode != Stabilizer::MODE_IDLE) {
+    std::cerr << "[" << m_profile.instance_name << "]   foot_origin_offset cannot be set. Current control_mode is " << st->control_mode << std::endl;
+  } else {
+    for (size_t i = 0; i < i_param.foot_origin_offset.length(); i++) {
+      st->foot_origin_offset[i](0) = i_param.foot_origin_offset[i][0];
+      st->foot_origin_offset[i](1) = i_param.foot_origin_offset[i][1];
+      st->foot_origin_offset[i](2) = i_param.foot_origin_offset[i][2];
+    }
+  }
+  std::cerr << "[" << m_profile.instance_name << "]   foot_origin_offset is ";
+  for (size_t i = 0; i < 2; i++) {
+    std::cerr << st->foot_origin_offset[i].format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]"));
+  }
+  std::cerr << "[m]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   eefm_k1  = [" << st->eefm_k1[0] << ", " << st->eefm_k1[1] << "], eefm_k2  = [" << st->eefm_k2[0] << ", " << st->eefm_k2[1] << "], eefm_k3  = [" << st->eefm_k3[0] << ", " << st->eefm_k3[1] << "]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   eefm_zmp_delay_time_const  = [" << st->eefm_zmp_delay_time_const[0] << ", " << st->eefm_zmp_delay_time_const[1] << "][s], eefm_ref_zmp_aux  = [" << st->ref_zmp_aux(0) << ", " << st->ref_zmp_aux(1) << "][m]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   eefm_body_attitude_control_gain  = [" << st->eefm_body_attitude_control_gain[0] << ", " << st->eefm_body_attitude_control_gain[1] << "], eefm_body_attitude_control_time_const  = [" << st->eefm_body_attitude_control_time_const[0] << ", " << st->eefm_body_attitude_control_time_const[1] << "][s]" << std::endl;
+  if (is_damping_parameter_ok) {
+    for (size_t j = 0; j < st->stikp.size(); j++) {
+      std::cerr << "[" << m_profile.instance_name << "]   [" << st->stikp[j].ee_name << "] eefm_rot_damping_gain = "
+                << st->stikp[j].eefm_rot_damping_gain.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]"))
+                << ", eefm_rot_time_const = "
+                << st->stikp[j].eefm_rot_time_const.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]"))
+                << "[s]" << std::endl;
+      std::cerr << "[" << m_profile.instance_name << "]   [" << st->stikp[j].ee_name << "] eefm_pos_damping_gain = "
+                << st->stikp[j].eefm_pos_damping_gain.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]"))
+                << ", eefm_pos_time_const_support = "
+                << st->stikp[j].eefm_pos_time_const_support.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]"))
+                << "[s]" << std::endl;
+      std::cerr << "[" << m_profile.instance_name << "]   [" << st->stikp[j].ee_name << "] "
+                << "eefm_pos_compensation_limit = " << st->stikp[j].eefm_pos_compensation_limit << "[m], "
+                << "eefm_rot_compensation_limit = " << st->stikp[j].eefm_rot_compensation_limit << "[rad], "
+                << "eefm_ee_moment_limit = " << st->stikp[j].eefm_ee_moment_limit.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << "[Nm]" << std::endl;
+      std::cerr << "[" << m_profile.instance_name << "]   [" << st->stikp[j].ee_name << "] "
+                << "eefm_swing_pos_spring_gain = " << st->stikp[j].eefm_swing_pos_spring_gain.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << ", "
+                << "eefm_swing_pos_time_const = " << st->stikp[j].eefm_swing_pos_time_const.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << ", "
+                << "eefm_swing_rot_spring_gain = " << st->stikp[j].eefm_swing_rot_spring_gain.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << ", "
+                << "eefm_swing_pos_time_const = " << st->stikp[j].eefm_swing_pos_time_const.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << ", "
+                << std::endl;
+      std::cerr << "[" << m_profile.instance_name << "]   [" << st->stikp[j].ee_name << "] "
+                << "eefm_ee_forcemoment_distribution_weight = " << st->stikp[j].eefm_ee_forcemoment_distribution_weight.format(Eigen::IOFormat(Eigen::StreamPrecision, 0, ", ", ", ", "", "", "    [", "]")) << "" << std::endl;
+    }
+  } else {
+    std::cerr << "[" << m_profile.instance_name << "]   eefm damping parameters cannot be set because of invalid param." << std::endl;
+  }
+  std::cerr << "[" << m_profile.instance_name << "]   eefm_pos_transition_time = " << st->eefm_pos_transition_time << "[s], eefm_pos_margin_time = " << st->eefm_pos_margin_time << "[s] eefm_pos_time_const_swing = " << st->eefm_pos_time_const_swing << "[s]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   cogvel_cutoff_freq = " << st->act_cogvel_filter->getCutOffFreq() << "[Hz]" << std::endl;
+  st->szd->print_params(std::string(m_profile.instance_name));
+  std::cerr << "[" << m_profile.instance_name << "]   eefm_gravitational_acceleration = " << st->eefm_gravitational_acceleration << "[m/s^2], eefm_use_force_difference_control = " << (st->eefm_use_force_difference_control? "true":"false") << ", eefm_use_swing_damping = " << (st->eefm_use_swing_damping? "true":"false") << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   eefm_ee_error_cutoff_freq = " << st->stikp[0].target_ee_diff_p_filter->getCutOffFreq() << "[Hz]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]  COMMON" << std::endl;
+  if (st->control_mode == Stabilizer::MODE_IDLE) {
+    st->st_algorithm = i_param.st_algorithm;
+    std::cerr << "[" << m_profile.instance_name << "]   st_algorithm changed to [" << st->getStabilizerAlgorithmString(st->st_algorithm) << "]" << std::endl;
+  } else {
+    std::cerr << "[" << m_profile.instance_name << "]   st_algorithm cannot be changed to [" << st->getStabilizerAlgorithmString(st->st_algorithm) << "] during MODE_AIR or MODE_ST." << std::endl;
+  }
+  std::cerr << "[" << m_profile.instance_name << "]   emergency_check_mode changed to [" << (st->emergency_check_mode == OpenHRP::AutoBalancerService::NO_CHECK?"NO_CHECK": (st->emergency_check_mode == OpenHRP::AutoBalancerService::COP?"COP":"CP") ) << "]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   transition_time = " << st->transition_time << "[s]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   cop_check_margin = " << st->cop_check_margin << "[m], "
+            << "cp_check_margin = [" << st->cp_check_margin[0] << ", " << st->cp_check_margin[1] << ", " << st->cp_check_margin[2] << ", " << st->cp_check_margin[3] << "] [m], "
+            << "tilt_margin = [" << st->tilt_margin[0] << ", " << st->tilt_margin[1] << "] [rad]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   contact_decision_threshold = " << st->contact_decision_threshold << "[N], detection_time_to_air = " << st->detection_count_to_air * m_dt << "[s]" << std::endl;
+  std::cerr << "[" << m_profile.instance_name << "]   root_rot_compensation_limit = [" << st->root_rot_compensation_limit[0] << " " << st->root_rot_compensation_limit[1] << "][rad]" << std::endl;
+  // IK limb parameters
+  std::cerr << "[" << m_profile.instance_name << "]  IK limb parameters" << std::endl;
+  bool is_ik_limb_parameter_valid_length = true;
+  if (i_param.ik_limb_parameters.length() != st->jpe_v.size()) {
+    is_ik_limb_parameter_valid_length = false;
+    std::cerr << "[" << m_profile.instance_name << "]   ik_limb_parameters invalid length! Cannot be set. (input = " << i_param.ik_limb_parameters.length() << ", desired = " << st->jpe_v.size() << ")" << std::endl;
+  } else {
+    for (size_t i = 0; i < st->jpe_v.size(); i++) {
+      if (st->jpe_v[i]->numJoints() != i_param.ik_limb_parameters[i].ik_optional_weight_vector.length())
+        is_ik_limb_parameter_valid_length = false;
+    }
+    if (is_ik_limb_parameter_valid_length) {
+      for (size_t i = 0; i < st->jpe_v.size(); i++) {
+        const OpenHRP::AutoBalancerService::IKLimbParameters& ilp = i_param.ik_limb_parameters[i];
+        std::vector<double> ov;
+        ov.resize(st->jpe_v[i]->numJoints());
+        for (size_t j = 0; j < st->jpe_v[i]->numJoints(); j++) {
+          ov[j] = ilp.ik_optional_weight_vector[j];
+        }
+        st->jpe_v[i]->setOptionalWeightVector(ov);
+        st->jpe_v[i]->setSRGain(ilp.sr_gain);
+        st->stikp[i].avoid_gain = ilp.avoid_gain;
+        st->stikp[i].reference_gain = ilp.reference_gain;
+        st->jpe_v[i]->setManipulabilityLimit(ilp.manipulability_limit);
+        st->stikp[i].ik_loop_count = ilp.ik_loop_count; // unsigned short -> size_t, value not change
+      }
+    } else {
+      std::cerr << "[" << m_profile.instance_name << "]   ik_optional_weight_vector invalid length! Cannot be set. (input = [";
+      for (size_t i = 0; i < st->jpe_v.size(); i++) {
+        std::cerr << i_param.ik_limb_parameters[i].ik_optional_weight_vector.length() << ", ";
+      }
+      std::cerr << "], desired = [";
+      for (size_t i = 0; i < st->jpe_v.size(); i++) {
+        std::cerr << st->jpe_v[i]->numJoints() << ", ";
+      }
+      std::cerr << "])" << std::endl;
+    }
+  }
+  if (is_ik_limb_parameter_valid_length) {
+    std::cerr << "[" << m_profile.instance_name << "]   ik_optional_weight_vectors = ";
+    for (size_t i = 0; i < st->jpe_v.size(); i++) {
+      std::vector<double> ov;
+      ov.resize(st->jpe_v[i]->numJoints());
+      st->jpe_v[i]->getOptionalWeightVector(ov);
+      std::cerr << "[";
+      for (size_t j = 0; j < st->jpe_v[i]->numJoints(); j++) {
+        std::cerr << ov[j] << " ";
+      }
+      std::cerr << "]";
+    }
+    std::cerr << std::endl;
+    std::cerr << "[" << m_profile.instance_name << "]   sr_gains = [";
+    for (size_t i = 0; i < st->jpe_v.size(); i++) {
+      std::cerr << st->jpe_v[i]->getSRGain() << ", ";
+    }
+    std::cerr << "]" << std::endl;
+    std::cerr << "[" << m_profile.instance_name << "]   avoid_gains = [";
+    for (size_t i = 0; i < st->stikp.size(); i++) {
+      std::cerr << st->stikp[i].avoid_gain << ", ";
+    }
+    std::cerr << "]" << std::endl;
+    std::cerr << "[" << m_profile.instance_name << "]   reference_gains = [";
+    for (size_t i = 0; i < st->stikp.size(); i++) {
+      std::cerr << st->stikp[i].reference_gain << ", ";
+    }
+    std::cerr << "]" << std::endl;
+    std::cerr << "[" << m_profile.instance_name << "]   manipulability_limits = [";
+    for (size_t i = 0; i < st->jpe_v.size(); i++) {
+      std::cerr << st->jpe_v[i]->getManipulabilityLimit() << ", ";
+    }
+    std::cerr << "]" << std::endl;
+    std::cerr << "[" << m_profile.instance_name << "]   ik_loop_count = [";
+    for (size_t i = 0; i < st->stikp.size(); i++) {
+      std::cerr << st->stikp[i].ik_loop_count << ", ";
+    }
+    std::cerr << "]" << std::endl;
+  }
+}
+
+void AutoBalancer::getStabilizerParam(OpenHRP::AutoBalancerService::StabilizerParam& i_param)
+{
+  std::cerr << "[" << m_profile.instance_name << "] getStabilizerParam" << std::endl;
+  for (size_t i = 0; i < 2; i++) {
+    // i_param.k_run_b[i] = k_run_b[i];
+    // i_param.d_run_b[i] = d_run_b[i];
+    //m_tau_x[i].setup(i_param.tdfke[0], i_param.tdftc[0], dt);
+    //m_tau_y[i].setup(i_param.tdfke[0], i_param.tdftc[0], dt);
+    //m_f_z.setup(i_param.tdfke[1], i_param.tdftc[1], dt);
+    i_param.k_tpcc_p[i] = st->k_tpcc_p[i];
+    i_param.k_tpcc_x[i] = st->k_tpcc_x[i];
+    i_param.k_brot_p[i] = st->k_brot_p[i];
+    i_param.k_brot_tc[i] = st->k_brot_tc[i];
+  }
+  // i_param.k_run_x = m_torque_k[0];
+  // i_param.k_run_y = m_torque_k[1];
+  // i_param.d_run_x = m_torque_d[0];
+  // i_param.d_run_y = m_torque_d[1];
+  for (size_t i = 0; i < 2; i++) {
+    i_param.eefm_k1[i] = st->eefm_k1[i];
+    i_param.eefm_k2[i] = st->eefm_k2[i];
+    i_param.eefm_k3[i] = st->eefm_k3[i];
+    i_param.eefm_zmp_delay_time_const[i] = st->eefm_zmp_delay_time_const[i];
+    i_param.eefm_ref_zmp_aux[i] = st->ref_zmp_aux(i);
+    i_param.eefm_body_attitude_control_time_const[i] = st->eefm_body_attitude_control_time_const[i];
+    i_param.eefm_body_attitude_control_gain[i] = st->eefm_body_attitude_control_gain[i];
+    i_param.ref_capture_point[i] = st->ref_cp(i);
+    i_param.act_capture_point[i] = st->act_cp(i);
+    i_param.cp_offset[i] = st->cp_offset(i);
+  }
+  i_param.eefm_pos_time_const_support.length(st->stikp.size());
+  i_param.eefm_pos_damping_gain.length(st->stikp.size());
+  i_param.eefm_pos_compensation_limit.length(st->stikp.size());
+  i_param.eefm_swing_pos_spring_gain.length(st->stikp.size());
+  i_param.eefm_swing_pos_time_const.length(st->stikp.size());
+  i_param.eefm_rot_time_const.length(st->stikp.size());
+  i_param.eefm_rot_damping_gain.length(st->stikp.size());
+  i_param.eefm_rot_compensation_limit.length(st->stikp.size());
+  i_param.eefm_swing_rot_spring_gain.length(st->stikp.size());
+  i_param.eefm_swing_rot_time_const.length(st->stikp.size());
+  i_param.eefm_ee_moment_limit.length(st->stikp.size());
+  i_param.eefm_ee_forcemoment_distribution_weight.length(st->stikp.size());
+  for (size_t j = 0; j < st->stikp.size(); j++) {
+    i_param.eefm_pos_damping_gain[j].length(3);
+    i_param.eefm_pos_time_const_support[j].length(3);
+    i_param.eefm_swing_pos_spring_gain[j].length(3);
+    i_param.eefm_swing_pos_time_const[j].length(3);
+    i_param.eefm_rot_damping_gain[j].length(3);
+    i_param.eefm_rot_time_const[j].length(3);
+    i_param.eefm_swing_rot_spring_gain[j].length(3);
+    i_param.eefm_swing_rot_time_const[j].length(3);
+    i_param.eefm_ee_moment_limit[j].length(3);
+    i_param.eefm_ee_forcemoment_distribution_weight[j].length(6);
+    for (size_t i = 0; i < 3; i++) {
+      i_param.eefm_pos_damping_gain[j][i] = st->stikp[j].eefm_pos_damping_gain(i);
+      i_param.eefm_pos_time_const_support[j][i] = st->stikp[j].eefm_pos_time_const_support(i);
+      i_param.eefm_swing_pos_spring_gain[j][i] = st->stikp[j].eefm_swing_pos_spring_gain(i);
+      i_param.eefm_swing_pos_time_const[j][i] = st->stikp[j].eefm_swing_pos_time_const(i);
+      i_param.eefm_rot_damping_gain[j][i] = st->stikp[j].eefm_rot_damping_gain(i);
+      i_param.eefm_rot_time_const[j][i] = st->stikp[j].eefm_rot_time_const(i);
+      i_param.eefm_swing_rot_spring_gain[j][i] = st->stikp[j].eefm_swing_rot_spring_gain(i);
+      i_param.eefm_swing_rot_time_const[j][i] = st->stikp[j].eefm_swing_rot_time_const(i);
+      i_param.eefm_ee_moment_limit[j][i] = st->stikp[j].eefm_ee_moment_limit(i);
+      i_param.eefm_ee_forcemoment_distribution_weight[j][i] = st->stikp[j].eefm_ee_forcemoment_distribution_weight(i);
+      i_param.eefm_ee_forcemoment_distribution_weight[j][i+3] = st->stikp[j].eefm_ee_forcemoment_distribution_weight(i+3);
+    }
+    i_param.eefm_pos_compensation_limit[j] = st->stikp[j].eefm_pos_compensation_limit;
+    i_param.eefm_rot_compensation_limit[j] = st->stikp[j].eefm_rot_compensation_limit;
+  }
+  for (size_t i = 0; i < 3; i++) {
+    i_param.eefm_swing_pos_damping_gain[i] = st->eefm_swing_pos_damping_gain(i);
+    i_param.eefm_swing_rot_damping_gain[i] = st->eefm_swing_rot_damping_gain(i);
+  }
+  i_param.eefm_pos_time_const_swing = st->eefm_pos_time_const_swing;
+  i_param.eefm_pos_transition_time = st->eefm_pos_transition_time;
+  i_param.eefm_pos_margin_time = st->eefm_pos_margin_time;
+  i_param.eefm_leg_inside_margin = st->szd->get_leg_inside_margin();
+  i_param.eefm_leg_outside_margin = st->szd->get_leg_outside_margin();
+  i_param.eefm_leg_front_margin = st->szd->get_leg_front_margin();
+  i_param.eefm_leg_rear_margin = st->szd->get_leg_rear_margin();
+
+  std::vector<std::vector<Eigen::Vector2d> > support_polygon_vec;
+  st->szd->get_vertices(support_polygon_vec);
+  i_param.eefm_support_polygon_vertices_sequence.length(support_polygon_vec.size());
+  for (size_t ee_idx = 0; ee_idx < support_polygon_vec.size(); ee_idx++) {
+    i_param.eefm_support_polygon_vertices_sequence[ee_idx].vertices.length(support_polygon_vec[ee_idx].size());
+    for (size_t v_idx = 0; v_idx < support_polygon_vec[ee_idx].size(); v_idx++) {
+      i_param.eefm_support_polygon_vertices_sequence[ee_idx].vertices[v_idx].pos[0] = support_polygon_vec[ee_idx][v_idx](0);
+      i_param.eefm_support_polygon_vertices_sequence[ee_idx].vertices[v_idx].pos[1] = support_polygon_vec[ee_idx][v_idx](1);
+    }
+  }
+
+  i_param.eefm_cogvel_cutoff_freq = st->act_cogvel_filter->getCutOffFreq();
+  i_param.eefm_wrench_alpha_blending = st->szd->get_wrench_alpha_blending();
+  i_param.eefm_alpha_cutoff_freq = st->szd->get_alpha_cutoff_freq();
+  i_param.eefm_gravitational_acceleration = st->eefm_gravitational_acceleration;
+  i_param.eefm_ee_error_cutoff_freq = st->stikp[0].target_ee_diff_p_filter->getCutOffFreq();
+  i_param.eefm_use_force_difference_control = st->eefm_use_force_difference_control;
+  i_param.eefm_use_swing_damping = st->eefm_use_swing_damping;
+  for (size_t i = 0; i < 3; ++i) {
+    i_param.eefm_swing_damping_force_thre[i] = st->eefm_swing_damping_force_thre[i];
+    i_param.eefm_swing_damping_moment_thre[i] = st->eefm_swing_damping_moment_thre[i];
+  }
+  i_param.is_ik_enable.length(st->is_ik_enable.size());
+  for (size_t i = 0; i < st->is_ik_enable.size(); i++) {
+    i_param.is_ik_enable[i] = st->is_ik_enable[i];
+  }
+  i_param.is_feedback_control_enable.length(st->is_feedback_control_enable.size());
+  for (size_t i = 0; i < st->is_feedback_control_enable.size(); i++) {
+    i_param.is_feedback_control_enable[i] = st->is_feedback_control_enable[i];
+  }
+  i_param.is_zmp_calc_enable.length(st->is_zmp_calc_enable.size());
+  for (size_t i = 0; i < st->is_zmp_calc_enable.size(); i++) {
+    i_param.is_zmp_calc_enable[i] = st->is_zmp_calc_enable[i];
+  }
+
+  i_param.foot_origin_offset.length(2);
+  for (size_t i = 0; i < i_param.foot_origin_offset.length(); i++) {
+    i_param.foot_origin_offset[i].length(3);
+    i_param.foot_origin_offset[i][0] = st->foot_origin_offset[i](0);
+    i_param.foot_origin_offset[i][1] = st->foot_origin_offset[i](1);
+    i_param.foot_origin_offset[i][2] = st->foot_origin_offset[i](2);
+  }
+  i_param.st_algorithm = st->st_algorithm;
+  i_param.transition_time = st->transition_time;
+  i_param.cop_check_margin = st->cop_check_margin;
+  for (size_t i = 0; i < st->cp_check_margin.size(); i++) {
+    i_param.cp_check_margin[i] = st->cp_check_margin[i];
+  }
+  for (size_t i = 0; i < st->tilt_margin.size(); i++) {
+    i_param.tilt_margin[i] = st->tilt_margin[i];
+  }
+  i_param.contact_decision_threshold = st->contact_decision_threshold;
+  i_param.is_estop_while_walking = st->is_estop_while_walking;
+  switch(st->control_mode) {
+  case Stabilizer::MODE_IDLE: i_param.controller_mode = OpenHRP::AutoBalancerService::MODE_STIDLE; break;
+  case Stabilizer::MODE_AIR: i_param.controller_mode = OpenHRP::AutoBalancerService::MODE_AIR; break;
+  case Stabilizer::MODE_ST: i_param.controller_mode = OpenHRP::AutoBalancerService::MODE_ST; break;
+  case Stabilizer::MODE_SYNC_TO_IDLE: i_param.controller_mode = OpenHRP::AutoBalancerService::MODE_SYNC_TO_STIDLE; break;
+  case Stabilizer::MODE_SYNC_TO_AIR: i_param.controller_mode = OpenHRP::AutoBalancerService::MODE_SYNC_TO_AIR; break;
+  default: break;
+  }
+  i_param.emergency_check_mode = st->emergency_check_mode;
+  i_param.end_effector_list.length(st->stikp.size());
+  i_param.use_limb_stretch_avoidance = st->use_limb_stretch_avoidance;
+  i_param.use_zmp_truncation = st->use_zmp_truncation;
+  i_param.limb_stretch_avoidance_time_const = st->limb_stretch_avoidance_time_const;
+  i_param.limb_length_margin.length(st->stikp.size());
+  i_param.detection_time_to_air = st->detection_count_to_air * m_dt;
+  for (size_t i = 0; i < 2; i++) {
+    i_param.limb_stretch_avoidance_vlimit[i] = st->limb_stretch_avoidance_vlimit[i];
+    i_param.root_rot_compensation_limit[i] = st->root_rot_compensation_limit[i];
+  }
+  for (size_t i = 0; i < st->stikp.size(); i++) {
+    const rats::coordinates cur_ee = rats::coordinates(st->stikp.at(i).localp, st->stikp.at(i).localR);
+    OpenHRP::AutoBalancerService::Footstep ret_ee;
+    // position
+    memcpy(ret_ee.pos, cur_ee.pos.data(), sizeof(double)*3);
+    // rotation
+    Eigen::Quaternion<double> qt(cur_ee.rot);
+    ret_ee.rot[0] = qt.w();
+    ret_ee.rot[1] = qt.x();
+    ret_ee.rot[2] = qt.y();
+    ret_ee.rot[3] = qt.z();
+    // name
+    ret_ee.leg = st->stikp.at(i).ee_name.c_str();
+    // set
+    i_param.end_effector_list[i] = ret_ee;
+    i_param.limb_length_margin[i] = st->stikp[i].limb_length_margin;
+  }
+  i_param.ik_limb_parameters.length(st->jpe_v.size());
+  for (size_t i = 0; i < st->jpe_v.size(); i++) {
+    OpenHRP::AutoBalancerService::IKLimbParameters& ilp = i_param.ik_limb_parameters[i];
+    ilp.ik_optional_weight_vector.length(st->jpe_v[i]->numJoints());
+    std::vector<double> ov;
+    ov.resize(st->jpe_v[i]->numJoints());
+    st->jpe_v[i]->getOptionalWeightVector(ov);
+    for (size_t j = 0; j < st->jpe_v[i]->numJoints(); j++) {
+      ilp.ik_optional_weight_vector[j] = ov[j];
+    }
+    ilp.sr_gain = st->jpe_v[i]->getSRGain();
+    ilp.avoid_gain = st->stikp[i].avoid_gain;
+    ilp.reference_gain = st->stikp[i].reference_gain;
+    ilp.manipulability_limit = st->jpe_v[i]->getManipulabilityLimit();
+    ilp.ik_loop_count = st->stikp[i].ik_loop_count; // size_t -> unsigned short, value may change, but ik_loop_count is small value and value not change
+  }
+}
 
 void AutoBalancer::copyRatscoords2Footstep(OpenHRP::AutoBalancerService::Footstep& out_fs, const rats::coordinates& in_fs)
 {
@@ -1928,11 +3223,11 @@ bool AutoBalancer::adjustFootSteps(const OpenHRP::AutoBalancerService::Footstep&
       //   Input : ee coords
       //   Output : link coords
       memcpy(eepos.data(), rfootstep.pos, sizeof(double)*3);
-      eerot = (Eigen::Quaternion<double>(rfootstep.rot[0], rfootstep.rot[1], rfootstep.rot[2], rfootstep.rot[3])).normalized().toRotationMatrix(); // rtc: 
+      eerot = (Eigen::Quaternion<double>(rfootstep.rot[0], rfootstep.rot[1], rfootstep.rot[2], rfootstep.rot[3])).normalized().toRotationMatrix(); // rtc:
       ikp["rleg"].adjust_interpolation_target_r0 = eerot;
       ikp["rleg"].adjust_interpolation_target_p0 = eepos;
       memcpy(eepos.data(), lfootstep.pos, sizeof(double)*3);
-      eerot = (Eigen::Quaternion<double>(lfootstep.rot[0], lfootstep.rot[1], lfootstep.rot[2], lfootstep.rot[3])).normalized().toRotationMatrix(); // rtc: 
+      eerot = (Eigen::Quaternion<double>(lfootstep.rot[0], lfootstep.rot[1], lfootstep.rot[2], lfootstep.rot[3])).normalized().toRotationMatrix(); // rtc:
       ikp["lleg"].adjust_interpolation_target_r0 = eerot;
       ikp["lleg"].adjust_interpolation_target_p0 = eepos;
       mid_coords(target_mid_coords, 0.5,
@@ -2023,7 +3318,14 @@ bool AutoBalancer::getGoPosFootstepsSequence(const double& x, const double& y, c
 void AutoBalancer::static_balance_point_proc_one(hrp::Vector3& tmp_input_sbp, const double ref_com_height)
 {
   hrp::Vector3 target_sbp = hrp::Vector3(0, 0, 0);
-  hrp::Vector3 tmpcog = m_robot->calcCM();
+  hrp::Vector3 tmpcog;
+  if (!gg_is_walking || !use_act_states) {
+    tmpcog = m_robot->calcCM();
+    dif_ref_act_cog = hrp::Vector3::Zero();
+  } else {
+    tmpcog = st->ref_foot_origin_pos + st->ref_foot_origin_rot * st->act_cog;
+    dif_ref_act_cog = m_robot->calcCM() - tmpcog;
+  }
   if ( use_force == MODE_NO_FORCE ) {
     tmp_input_sbp = tmpcog + sbp_cog_offset;
   } else {
@@ -2310,5 +3612,3 @@ extern "C"
     }
 
 };
-
-

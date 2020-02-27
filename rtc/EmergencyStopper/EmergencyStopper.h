@@ -106,6 +106,7 @@ public:
     bool releaseMotion();
     bool getEmergencyStopperParam(OpenHRP::EmergencyStopperService::EmergencyStopperParam& i_param);
     bool setEmergencyStopperParam(const OpenHRP::EmergencyStopperService::EmergencyStopperParam& i_param);
+    bool setEmergencyJointAngles(const double *angles, const bool solved);
 
 protected:
     // Configuration variable declaration
@@ -114,18 +115,24 @@ protected:
     // </rtc-template>
 
     TimedDoubleSeq m_qRef;
+    TimedDoubleSeq m_qEmergency;
     TimedDoubleSeq m_q;
+    TimedDoubleSeq m_qTouchWall;
     TimedLong m_emergencySignal;
+    TimedBoolean m_emergencyFallMotion;
     TimedLong m_emergencyMode;
     OpenHRP::TimedLongSeqSeq m_servoState;
     std::vector<TimedDoubleSeq> m_wrenchesRef;
     std::vector<TimedDoubleSeq> m_wrenches;
     TimedLongSeq m_beepCommand;
+    TimedBoolean m_touchWallMotionSolved;
 
     // DataInPort declaration
     // <rtc-template block="inport_declare">
     InPort<TimedDoubleSeq> m_qRefIn;
+    InPort<TimedDoubleSeq> m_qEmergencyIn;
     InPort<TimedLong> m_emergencySignalIn;
+    InPort<TimedBoolean> m_emergencyFallMotionIn;
     InPort<OpenHRP::TimedLongSeqSeq> m_servoStateIn;
     std::vector<InPort<TimedDoubleSeq> *> m_wrenchesIn;
   
@@ -134,9 +141,11 @@ protected:
     // DataOutPort declaration
     // <rtc-template block="outport_declare">
     OutPort<TimedDoubleSeq> m_qOut;
+    OutPort<TimedDoubleSeq> m_qTouchWallOut;
     OutPort<TimedLong> m_emergencyModeOut;
     std::vector<OutPort<TimedDoubleSeq> *> m_wrenchesOut;
     OutPort<TimedLongSeq> m_beepCommandOut;
+    OutPort<TimedBoolean> m_touchWallMotionSolvedOut;
   
     // </rtc-template>
 
@@ -178,12 +187,13 @@ private:
     double m_dt;
     unsigned int m_debugLevel;
     int loop;
-    bool is_stop_mode, prev_is_stop_mode;
+    bool is_stop_mode, prev_is_stop_mode, is_emergency_fall_motion;
     bool is_initialized;
     int recover_time, retrieve_time;
     double recover_time_dt;
     int default_recover_time, default_retrieve_time;
-    double *m_stop_posture;
+    std::vector<double> m_stop_posture;
+    std::vector<double> m_motion_posture;
     double *m_stop_wrenches;
     double *m_tmp_wrenches;
     interpolator* m_interpolator;
@@ -194,6 +204,8 @@ private:
     coil::Mutex m_mutex;
     BeepClient bc;
     int dummy;
+    bool solved;
+    int emergency_mode;
 };
 
 

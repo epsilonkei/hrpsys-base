@@ -4,6 +4,7 @@
 #include <hrpModel/Body.h>
 #include "../ImpedanceController/JointPathEx.h"
 #include "../ImpedanceController/RatsMatrix.h"
+#include "AutoBalancerService_impl.h"
 
 // Class for Simple Fullbody Inverse Kinematics
 //   Input : target root pos and rot, target COG, target joint angles, target EE coords
@@ -11,7 +12,7 @@
 //   Algorithm : Limb IK + move base
 class SimpleFullbodyInverseKinematicsSolver
 {
-private:
+protected:
     // Robot model for IK
     hrp::BodyPtr m_robot;
     // Org (current) joint angles before IK
@@ -41,6 +42,7 @@ public:
         std::string parent_name;
         // Limb length
         double max_limb_length, limb_length_margin;
+        std::vector<int> group_indices;
         IKparam ()
             : avoid_gain(0.001), reference_gain(0.01),
               pos_ik_error_count(0), rot_ik_error_count(0),
@@ -146,6 +148,15 @@ public:
             if (it->second.is_ik_enable) solveLimbIK (it->second, it->first, ratio_for_vel, is_transition);
         }
     };
+    void solveSimpleFullbodyIKLoop (const hrp::Vector3& _dif_cog, const bool is_transition) {
+      hrp::Vector3 dif_cog(ratio_for_vel*_dif_cog);
+      dif_cog(2) = m_robot->rootLink()->p(2) - target_root_p(2) - d_root_height;
+      m_robot->rootLink()->p = m_robot->rootLink()->p + -1 * move_base_gain * dif_cog;
+      m_robot->calcForwardKinematics();
+      for ( std::map<std::string, IKparam>::iterator it = ikp.begin(); it != ikp.end(); it++ ) {
+        if (it->second.is_ik_enable) solveLimbIK (it->second, it->first, ratio_for_vel, is_transition);
+      }
+    }
     // Solve limb IK
     bool solveLimbIK (IKparam& param, const std::string& limb_name, const double ratio_for_vel, const bool is_transition)
     {

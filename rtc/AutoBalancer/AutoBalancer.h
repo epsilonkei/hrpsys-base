@@ -23,12 +23,14 @@
 #include "../ImpedanceController/JointPathEx.h"
 #include "../ImpedanceController/RatsMatrix.h"
 #include "GaitGenerator.h"
+#include "Stabilizer.h"
 // Service implementation headers
 // <rtc-template block="service_impl_h">
 #include "AutoBalancerService_impl.h"
 #include "interpolator.h"
 #include "../TorqueFilter/IIRFilter.h"
-#include "SimpleFullbodyInverseKinematicsSolver.h"
+//#include "SimpleFullbodyInverseKinematicsSolver.h"
+#include "FullbodyInverseKinematicsSolver.h"
 
 // </rtc-template>
 
@@ -116,6 +118,13 @@ class AutoBalancer
   bool releaseEmergencyStop();
   void distributeReferenceZMPToWrenches (const hrp::Vector3& _ref_zmp);
 
+  // Stabilizer
+  void getStabilizerParam(OpenHRP::AutoBalancerService::StabilizerParam& i_param);
+  void setStabilizerParam(const OpenHRP::AutoBalancerService::StabilizerParam& i_param);
+  void startStabilizer(void);
+  void stopStabilizer(void);
+
+
  protected:
   // Configuration variable declaration
   // <rtc-template block="config_declare">
@@ -126,6 +135,10 @@ class AutoBalancer
   // <rtc-template block="inport_declare">
   TimedDoubleSeq m_qRef;
   InPort<TimedDoubleSeq> m_qRefIn;
+  TimedDoubleSeq m_qCurrent;
+  InPort<TimedDoubleSeq> m_qCurrentIn;
+  TimedDoubleSeq m_qTouchWall;
+  InPort<TimedDoubleSeq> m_qTouchWallIn;
   TimedPoint3D m_basePos;
   InPort<TimedPoint3D> m_basePosIn;
   TimedOrientation3D m_baseRpy;
@@ -136,8 +149,6 @@ class AutoBalancer
   InPort<TimedDoubleSeq> m_optionalDataIn;
   std::vector<TimedDoubleSeq> m_ref_force;
   std::vector<InPort<TimedDoubleSeq> *> m_ref_forceIn;
-  TimedLong m_emergencySignal;
-  InPort<TimedLong> m_emergencySignalIn;
   TimedPoint3D m_diffCP;
   InPort<TimedPoint3D> m_diffCPIn;
   TimedBooleanSeq m_actContactStates;
@@ -146,6 +157,19 @@ class AutoBalancer
   InPort<TimedPoint3D> m_refFootOriginExtMomentIn;
   TimedBoolean m_refFootOriginExtMomentIsHoldValue;
   InPort<TimedBoolean> m_refFootOriginExtMomentIsHoldValueIn;
+  TimedOrientation3D m_rpy;
+  InPort<TimedOrientation3D> m_rpyIn;
+  TimedDoubleSeq m_qRefSeq;
+  InPort<TimedDoubleSeq> m_qRefSeqIn;
+  TimedBoolean m_touchWallMotionSolved;
+  InPort<TimedBoolean> m_touchWallMotionSolvedIn;
+  std::vector<TimedDoubleSeq> m_wrenches;
+  std::vector<InPort<TimedDoubleSeq> *> m_wrenchesIn;
+  OpenHRP::TimedLandingPosition m_landingHeight;
+  InPort<OpenHRP::TimedLandingPosition> m_landingHeightIn;
+  OpenHRP::TimedSteppableRegion m_steppableRegion;
+  InPort<OpenHRP::TimedSteppableRegion> m_steppableRegionIn;
+
   // for debug
   TimedPoint3D m_cog;
   
@@ -155,6 +179,10 @@ class AutoBalancer
   // <rtc-template block="outport_declare">
   OutPort<TimedDoubleSeq> m_qOut;
   RTC::OutPort<RTC::TimedPoint3D> m_zmpOut;
+  TimedDoubleSeq m_tmp;
+  OutPort<TimedDoubleSeq> m_tmpOut;
+  TimedDoubleSeq m_allEEComp;
+  OutPort<TimedDoubleSeq> m_allEECompOut;
   OutPort<TimedPoint3D> m_basePosOut;
   OutPort<TimedOrientation3D> m_baseRpyOut;
   TimedDoubleSeq m_baseTform;
@@ -173,6 +201,20 @@ class AutoBalancer
   OutPort<TimedBoolean> m_walkingStatesOut;
   TimedPoint3D m_sbpCogOffset;
   OutPort<TimedPoint3D> m_sbpCogOffsetOut;
+  TimedLong m_emergencySignal;
+  OutPort<TimedLong> m_emergencySignalOut;
+  TimedBoolean m_emergencyFallMotion;
+  OutPort<TimedBoolean> m_emergencyFallMotionOut;
+  TimedBoolean m_isStuck;
+  OutPort<TimedBoolean> m_isStuckOut;
+  TimedBoolean m_useFlywheel;
+  OutPort<TimedBoolean> m_useFlywheelOut;
+  TimedPoint3D m_estimatedFxy;
+  OutPort<TimedPoint3D> m_estimatedFxyOut;
+  OpenHRP::TimedLandingPosition m_landingTarget;
+  OutPort<OpenHRP::TimedLandingPosition> m_landingTargetOut;
+  OpenHRP::TimedCogState m_endCogState;
+  OutPort<OpenHRP::TimedCogState> m_endCogStateOut;
   std::vector<TimedDoubleSeq> m_force;
   std::vector<OutPort<TimedDoubleSeq> *> m_ref_forceOut;
   std::vector<TimedPoint3D> m_limbCOPOffset;
@@ -207,9 +249,11 @@ class AutoBalancer
     bool is_active, has_toe_joint;
   };
   void getTargetParameters();
+  void solveSimpleFullbodyIK ();
   void solveFullbodyIK ();
   void startABCparam(const ::OpenHRP::AutoBalancerService::StrSequence& limbs);
   void stopABCparam();
+  void stopABCparamEmergency();
   void waitABCTransition();
   // Functions to calculate parameters for ABC output.
   // Output parameters are EE, limbCOPOffset, contactStates, controlSwingSupportTime, toeheelPhaseRatio
@@ -240,15 +284,23 @@ class AutoBalancer
   };
   bool calc_inital_support_legs(const double& y, std::vector<rats::coordinates>& initial_support_legs_coords, std::vector<rats::leg_type>& initial_support_legs, rats::coordinates& start_ref_coords);
   std::string getUseForceModeString ();
+  void setActData2ST ();
+  void setABCData2ST ();
+  void limit_cog (hrp::Vector3& cog);
+  bool vlimit(double& ret, const double llimit_value, const double ulimit_value);
+  void stopFootForEarlyTouchDown();
 
   // for gg
   typedef boost::shared_ptr<rats::gait_generator> ggPtr;
   ggPtr gg;
+  typedef boost::shared_ptr<Stabilizer> stPtr;
+  stPtr st;
   bool gg_is_walking, gg_solved;
   // for abc
-  typedef boost::shared_ptr<SimpleFullbodyInverseKinematicsSolver> fikPtr;
+  typedef boost::shared_ptr<FullbodyInverseKinematicsSolver> fikPtr;
   fikPtr fik;
-  hrp::Vector3 ref_cog, ref_zmp, prev_ref_zmp, prev_imu_sensor_pos, prev_imu_sensor_vel, hand_fix_initial_offset;
+  OpenHRP::AutoBalancerService::IKMode ik_mode;
+  hrp::Vector3 ref_cog, ref_zmp, rel_ref_zmp, prev_ref_zmp, prev_imu_sensor_pos, prev_imu_sensor_vel, hand_fix_initial_offset, orig_cog, prev_orig_cog, limited_dif_cog;
   enum {BIPED, TROT, PACE, CRAWL, GALLOP} gait_type;
   enum {MODE_IDLE, MODE_ABC, MODE_SYNC_TO_IDLE, MODE_SYNC_TO_ABC} control_mode;
   std::map<std::string, ABCIKparam> ikp;
@@ -262,16 +314,20 @@ class AutoBalancer
   double m_dt;
   hrp::BodyPtr m_robot;
   coil::Mutex m_mutex;
-  double d_pos_z_root, limb_stretch_avoidance_time_const, limb_stretch_avoidance_vlimit[2];
-  bool use_limb_stretch_avoidance;
 
   double transition_interpolator_ratio, transition_time, zmp_transition_time, adjust_footstep_transition_time, leg_names_interpolator_ratio;
   interpolator *zmp_offset_interpolator;
   interpolator *transition_interpolator;
   interpolator *adjust_footstep_interpolator;
   interpolator *leg_names_interpolator;
-  hrp::Vector3 input_zmp, input_basePos;
-  hrp::Matrix33 input_baseRot;
+  interpolator *angular_momentum_interpolator;
+  interpolator *roll_weight_interpolator;
+  interpolator *pitch_weight_interpolator;
+  interpolator *go_vel_interpolator;
+  interpolator *cog_constraint_interpolator;
+  interpolator *limit_cog_interpolator;
+  hrp::Vector3 input_zmp, input_basePos, ref_basePos, baseRpy;
+  hrp::Matrix33 input_baseRot, ref_baseRot;
 
   // static balance point offsetting
   hrp::Vector3 sbp_offset, sbp_cog_offset;
@@ -292,6 +348,20 @@ class AutoBalancer
   // Used for ref force balancing.
   hrp::Link* additional_force_applied_link;
   hrp::Vector3 additional_force_applied_point_offset;
+
+  bool is_after_walking;
+  hrp::Vector3 dif_ref_act_cog;
+  std::vector<std::vector<Eigen::Vector2d> > support_polygon_vertices;
+  bool use_act_states;
+  std::vector<double> diff_q;
+  interpolator *emergency_transition_interpolator;
+  interpolator *touch_wall_transition_interpolator;
+  hrp::Vector3 touchdown_foot_pos[2];
+  bool is_foot_touch[2];
+  std::map<std::string, interpolator*> touchdown_transition_interpolator;
+  bool prev_roll_state, prev_pitch_state;
+  bool is_emergency_step_mode, is_emergency_touch_wall_mode, is_emergency_stopping, is_touch_wall_motion_solved;
+  double cog_z_constraint, touch_wall_retrieve_time;
 };
 
 
