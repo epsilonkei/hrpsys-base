@@ -3,6 +3,7 @@
 #include <iostream>
 
 #define DEFAULT_ANGLE_ERROR_LIMIT (0.2 - 0.02) // [rad]
+// #define DEFAULT_ANGLE_ERROR_LIMIT 0.1 // [rad]
 
 
 // robot model copy from RobotHardware

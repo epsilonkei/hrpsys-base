@@ -1402,7 +1402,7 @@ void Stabilizer::calcStateForEmergencySignal()
     } else if (falling_direction != 0) {
       // comment in if you use emergency motion
       if (((falling_direction == 1 || falling_direction == 2) && std::fabs(rad2deg(ref_root_rpy(1))) > 0.1) ||
-          ((falling_direction == 3 || falling_direction == 4) && std::fabs(rad2deg(ref_root_rpy(0))) > 0.1))
+          ((falling_direction == 3 || falling_direction == 4) && std::fabs(rad2deg(ref_root_rpy(0))) > 0.05))
         is_emergency_motion = true;
     }
     if (DEBUGP) {

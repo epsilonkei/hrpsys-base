@@ -663,6 +663,7 @@ namespace rats
     lr_region[0] = lr_region[1] = false;
     is_emergency_touch_wall = false;
     is_stuck = false;
+    falling_direction = 0;
     lcg.reset(one_step_len, footstep_nodes_list.at(1).front().step_time/dt, initial_swing_leg_dst_steps, initial_swing_leg_dst_steps, initial_support_leg_steps, default_double_support_ratio_swing_before, default_double_support_ratio_swing_after);
     /* make another */
     lcg.set_swing_support_steps_list(footstep_nodes_list);
@@ -1588,7 +1589,7 @@ namespace rats
       // if (use_roll_flywheel || use_pitch_flywheel) std::cerr << "torque :" << flywheel_tau.transpose()<< std::endl;
     }
     // fall down check // TODO: turn walking is not considered
-    {
+    if (lcg.get_footstep_index() > 1) {
       // next step pos relative
       double remain_time = remain_count * dt;
       double end_cp_front = std::exp(omega * remain_time) * cur_cp(0) - (std::exp(omega * remain_time) - 1) * leg_margin[0];
